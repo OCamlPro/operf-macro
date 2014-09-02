@@ -1,0 +1,20 @@
+bin: [
+  "_build/src/macrorun.native" {"macrorun"} ]
+lib: [
+  "_build/lib/macroperf.a" {"macroperf.a"}
+  "_build/lib/macroperf.cma" {"macroperf.cma"}
+  "_build/lib/macroperf.cmi" {"macroperf.cmi"}
+  "?_build/lib/macroperf.cmti" {"macroperf.cmti"}
+  "_build/lib/macroperf.cmx" {"macroperf.cmx"}
+  "_build/lib/macroperf.cmxa" {"macroperf.cmxa"}
+  "_build/lib/macroperf.cmxs" {"macroperf.cmxs"}
+  "_build/lib/macroperf.mli" {"macroperf.mli"}
+  "_build/lwt/macroperf_lwt.a" {"macroperf_lwt.a"}
+  "_build/lwt/macroperf_lwt.cma" {"macroperf_lwt.cma"}
+  "_build/lwt/macroperf_lwt.cmi" {"macroperf_lwt.cmi"}
+  "?_build/lwt/macroperf_lwt.cmti" {"macroperf_lwt.cmti"}
+  "_build/lwt/macroperf_lwt.cmx" {"macroperf_lwt.cmx"}
+  "_build/lwt/macroperf_lwt.cmxa" {"macroperf_lwt.cmxa"}
+  "_build/lwt/macroperf_lwt.cmxs" {"macroperf_lwt.cmxs"}
+  "_build/lwt/macroperf_lwt.mli" {"macroperf_lwt.mli"}
+  "_build/pkg/META" {"META"} ]
