@@ -1,0 +1,11 @@
+PRJ operf-macro
+S lib/.
+S lwt/.
+S src/.
+B _build/lib
+B _build/lwt
+B _build/src
+PKG findlib
+PKG lwt.unix
+PKG re.pcre
+PKG sexplib
