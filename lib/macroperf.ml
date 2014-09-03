@@ -12,8 +12,8 @@ module Topic = struct
     | Allocs_minor
     | Compactions
 
-    (* PERF(1) related (linux only) *)
-    | Perf of string list with sexp
+    (* PERF-STAT(1) related (linux only) *)
+    | Perf of string with sexp
 
   let compare = Pervasives.compare
 end
@@ -32,8 +32,8 @@ module Benchmark = struct
   type t = {
     b_name: string;
     b_descr: string option;
-    b_cmd: string * string array;
-    b_env: string array option;
+    b_cmd: string list;
+    b_env: string list option;
     b_speed: speed;
     b_measures: TSet.t;
   } with sexp
@@ -53,12 +53,18 @@ module Benchmark = struct
 end
 
 module Result = struct
-  type measure = [ `Int of int | `Float of float ] with sexp
+  type measure = [ `Int of int | `Float of float | `Error ] with sexp
+
+  module Unix = struct
+    include Unix
+    let tm_of_sexp sexp = sexp |> float_of_sexp |> Unix.gmtime
+    let sexp_of_tm tm = Unix.mktime tm |> fst |> sexp_of_float
+  end
 
   type t = {
     res_name: string;
-    res_cmd: string array;
-    res_date: float option;
+    res_cmd: string list;
+    res_date: Unix.tm option;
     res_data: (Topic.t * measure) list;
   } with sexp
 
@@ -69,6 +75,14 @@ module Result = struct
     {
       res_name=name;
       res_cmd=cmd;
+      res_date=date;
+      res_data=data;
+    }
+
+  let of_benchmark ?date b data =
+    Benchmark.{
+      res_name=b.b_name;
+      res_cmd=b.b_cmd;
       res_date=date;
       res_data=data;
     }

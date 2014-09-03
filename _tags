@@ -4,4 +4,5 @@
 <src> : include
 <lib/*.{ml,mli}> : syntax(camlp4o), package(sexplib.syntax)
 <lwt/*.{ml,mli}> : syntax(camlp4o), package(lwt.syntax), package(lwt), package(re.pcre)
-<src/*.{ml,mli}> : package(lwt)
+<src/*.{ml,mli}> : package(lwt), package(cmdliner), package(sexplib)
+<src/*.{byte,native}>: package(cmdliner), package(re.pcre), package(lwt.unix), package(sexplib)
