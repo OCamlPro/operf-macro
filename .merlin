@@ -9,3 +9,4 @@ PKG findlib
 PKG lwt.unix
 PKG re.pcre
 PKG sexplib
+PKG cmdliner
