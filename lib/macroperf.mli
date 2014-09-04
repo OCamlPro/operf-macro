@@ -31,6 +31,8 @@ module Benchmark : sig
         PATH *)
     b_env: string list option;
     (** Optional environment for the benchmark *)
+    b_nb_iter: int;
+    (** Number of iterations *)
     b_speed: speed;
     (** Use to characterize the execution time of a benchmark *)
     b_measures: TSet.t;
@@ -42,6 +44,7 @@ module Benchmark : sig
     ?descr:string ->
     cmd:string list ->
     ?env:string list ->
+    ?nb_iter:int ->
     speed:speed ->
     measures:Topic.t list ->
     unit ->
@@ -57,6 +60,8 @@ module Result : sig
   type t = private {
     res_name: string;
     (** The name of the benchmark *)
+    res_descr: string option;
+    (** The optional description of the benchmark *)
     res_cmd: string list;
     (** The command line used to run the benchmark *)
     res_date: Unix.tm option;
@@ -70,9 +75,10 @@ module Result : sig
 
   val make :
     name:string ->
+    ?descr:string ->
     cmd:string list ->
     ?date:Unix.tm ->
-    data:(Topic.t * measure) list ->
+    data:(Topic.t * measure) list -> unit ->
     t
 
   val of_benchmark :

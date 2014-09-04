@@ -34,6 +34,7 @@ module Benchmark = struct
     b_descr: string option;
     b_cmd: string list;
     b_env: string list option;
+    b_nb_iter: int;
     b_speed: speed;
     b_measures: TSet.t;
   } with sexp
@@ -41,12 +42,13 @@ module Benchmark = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~name ?descr ~cmd ?env ~speed ~measures () =
+  let make ~name ?descr ~cmd ?env ?(nb_iter=1) ~speed ~measures () =
     {
       b_name=name;
       b_descr=descr;
       b_cmd=cmd;
       b_env=env;
+      b_nb_iter=nb_iter;
       b_speed=speed;
       b_measures=TSet.of_list measures;
     }
@@ -63,6 +65,7 @@ module Result = struct
 
   type t = {
     res_name: string;
+    res_descr: string option;
     res_cmd: string list;
     res_date: Unix.tm option;
     res_data: (Topic.t * measure) list;
@@ -71,9 +74,10 @@ module Result = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~name ~cmd ?date ~data =
+  let make ~name ?descr ~cmd ?date ~data () =
     {
       res_name=name;
+      res_descr=descr;
       res_cmd=cmd;
       res_date=date;
       res_data=data;
@@ -82,6 +86,7 @@ module Result = struct
   let of_benchmark ?date b data =
     Benchmark.{
       res_name=b.b_name;
+      res_descr=b.b_descr;
       res_cmd=b.b_cmd;
       res_date=date;
       res_data=data;
