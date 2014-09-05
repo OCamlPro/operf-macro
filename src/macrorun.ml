@@ -20,8 +20,8 @@ let perf copts cmd evts bench_out =
     let bench =
     Benchmark.(make
                  ~name
-                 ~descr:("Benchmark of " ^ name ^
-                         " avg. over " ^ string_of_int copts.nb_iter ^
+                 ~descr:("Benchmark of ``" ^ name ^
+                         "'' avg. over " ^ string_of_int copts.nb_iter ^
                          " iterations.")
                  ~cmd
                  ~nb_iter:copts.nb_iter

@@ -64,9 +64,7 @@ module Result = struct
   end
 
   type t = {
-    res_name: string;
-    res_descr: string option;
-    res_cmd: string list;
+    res_src: Benchmark.t;
     res_date: Unix.tm option;
     res_data: (Topic.t * measure) list;
   } with sexp
@@ -74,20 +72,9 @@ module Result = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~name ?descr ~cmd ?date ~data () =
+  let make ?date ~src ~data () =
     {
-      res_name=name;
-      res_descr=descr;
-      res_cmd=cmd;
-      res_date=date;
-      res_data=data;
-    }
-
-  let of_benchmark ?date b data =
-    Benchmark.{
-      res_name=b.b_name;
-      res_descr=b.b_descr;
-      res_cmd=b.b_cmd;
+      res_src=src;
       res_date=date;
       res_data=data;
     }

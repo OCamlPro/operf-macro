@@ -16,18 +16,15 @@ module Perf_wrapper = struct
   type result = (Topic.t * measure) list
   (** A result is a list of perf events and associated measures *)
 
-  let run ?env ?(evt="") ?nb_iter cmd =
-    let nb_iter = match nb_iter with
-      | None -> "1"
-      | Some nb_iter -> string_of_int nb_iter in
-    let perf_cmdline = ["perf"; "stat"; "-x,"; "-r"; nb_iter] in
+  let run ?env ?(evt="") ?(nb_iter=1) cmd =
+    let perf_cmdline = ["perf"; "stat"; "-x,"; "-r"; string_of_int nb_iter] in
     let perf_cmdline = match evt with
       | "" -> perf_cmdline
       | evt -> perf_cmdline @ ["-e"; evt] in
     let cmd = "", Array.of_list @@ perf_cmdline @ cmd in
     let env = match env with
-      | None -> None
-      | Some env -> Some (Array.of_list env) in
+      | None -> Some [|"LANG=C"|]
+      | Some env -> Some (Array.of_list @@ "LANG=C"::env) in
 
     let produce_result pfull =
       let rex = Re.(str "," |> compile) in
@@ -45,7 +42,8 @@ module Perf_wrapper = struct
           drain_stderr [] >|= fun res ->
           rv, List.fold_left
             (fun acc l -> match l with
-               | [v;"";event] -> (Topic.Perf event, measure_of_string v)::acc
+               | [v;"";event; ] -> (Topic.Perf event, measure_of_string v)::acc
+               | [v;"";event; _] -> (Topic.Perf event, measure_of_string v)::acc
                | _ -> acc
             )
             [] res
@@ -58,7 +56,10 @@ end
 module Runner = struct
   exception Not_implemented
 
-  let run_exn ?(nb_iter=1) ?topics b =
+  let run_exn ?nb_iter ?topics b =
+    let nb_iter = match nb_iter with
+      | None -> b.Benchmark.b_nb_iter
+      | Some nb_iter -> nb_iter in
     let open Benchmark in
     let topics = match topics with
       | None -> TSet.elements b.b_measures
@@ -97,11 +98,11 @@ module Runner = struct
       )
       [] topics
     >|= fun data ->
-    Result.of_benchmark
-      ~date:(Unix.(gettimeofday () |> gmtime)) b data
+    Result.make
+      ~date:(Unix.(gettimeofday () |> gmtime)) ~src:b ~data ()
 
-  let run ?(nb_iter=1) ?topics b =
-    try_lwt run_exn ~nb_iter ?topics b >|= fun r -> Some r
+  let run ?nb_iter ?topics b =
+    try_lwt run_exn ?nb_iter ?topics b >|= fun r -> Some r
     with _ -> return None
 
 end

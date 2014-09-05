@@ -58,12 +58,8 @@ module Result : sig
   type measure = [ `Int of int | `Float of float | `Error ]
 
   type t = private {
-    res_name: string;
-    (** The name of the benchmark *)
-    res_descr: string option;
-    (** The optional description of the benchmark *)
-    res_cmd: string list;
-    (** The command line used to run the benchmark *)
+    res_src: Benchmark.t;
+    (** The benchmark used to produce this result *)
     res_date: Unix.tm option;
     (** The date when the benchmark was run *)
     res_data: (Topic.t * measure) list;
@@ -74,14 +70,8 @@ module Result : sig
   val to_string : t -> string
 
   val make :
-    name:string ->
-    ?descr:string ->
-    cmd:string list ->
     ?date:Unix.tm ->
+    src:Benchmark.t ->
     data:(Topic.t * measure) list -> unit ->
     t
-
-  val of_benchmark :
-    ?date:Unix.tm ->
-    Benchmark.t -> (Topic.t * measure) list -> t
 end
