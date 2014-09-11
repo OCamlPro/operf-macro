@@ -1,6 +1,8 @@
 open Lwt
 open Macroperf
 
+let section = Lwt_log.Section.make "macroperf_lwt"
+
 module Perf_wrapper = struct
 
   type event = string
@@ -13,10 +15,27 @@ module Perf_wrapper = struct
       try `Float (float_of_string s) with _ ->
         `Error
 
-  type result = (Topic.t * measure) list
+  type result = {
+    return_value: int;
+    stdout: string;
+    res: (Topic.t * measure) list
+  }
   (** A result is a list of perf events and associated measures *)
 
   let run ?env ?(evt="") ?(nb_iter=1) cmd =
+    (* perf does not care about PATH *)
+    (match cmd with
+     | [] -> fail (Invalid_argument "empty command")
+     | c::args ->
+         (Lwt_process.with_process_in
+            ("", [|"/bin/sh"; "-c"; Printf.sprintf "command -v %s" c|])
+            (fun pi -> pi#status >>= function
+               | Unix.WEXITED 0 -> Lwt_io.read_line pi#stdout
+               | _ -> fail (Invalid_argument (Printf.sprintf "%s does not exist" c))
+            )
+         ) >>= fun abs_cmd ->
+         return (abs_cmd::args))
+    >>= fun cmd ->
     let perf_cmdline = ["perf"; "stat"; "-x,"; "-r"; string_of_int nb_iter] in
     let perf_cmdline = match evt with
       | "" -> perf_cmdline
@@ -29,25 +48,32 @@ module Perf_wrapper = struct
     let produce_result pfull =
       let rex = Re.(str "," |> compile) in
       let rec drain_stderr acc =
-        lwt line =
-          try_lwt Lwt_io.read_line pfull#stderr
-          with End_of_file -> return ""
-        in
+        catch
+          (fun () -> Lwt_io.read_line pfull#stderr)
+          (fun _ -> return "") >>= fun line ->
         match line with
         | "" -> return acc
         | l -> drain_stderr ((Re_pcre.split ~rex line)::acc)
       in
+      Lwt_io.read pfull#stdout >>= fun stdout ->
       pfull#status >>= function
-      | Unix.WEXITED rv ->
+      | Unix.WEXITED return_value ->
           drain_stderr [] >|= fun res ->
-          rv, List.fold_left
-            (fun acc l -> match l with
-               | [v;"";event; ] -> (Topic.Perf event, measure_of_string v)::acc
-               | [v;"";event; _] -> (Topic.Perf event, measure_of_string v)::acc
-               | _ -> acc
-            )
-            [] res
-      | _ -> raise_lwt (Failure "perf has been killed")
+          {
+            return_value;
+            stdout;
+            res=(List.fold_left
+                (fun acc l -> match l with
+                   | [v;"";event; ] -> (Topic.Perf event, measure_of_string v)::acc
+                   | [v;"";event; _] -> (Topic.Perf event, measure_of_string v)::acc
+                   | l ->
+                       Lwt_log.ign_warning_f ~section
+                         "Ignoring perf result line [%s]" (String.concat "," l);
+                       acc
+                )
+                [] res);
+          }
+      | _ -> fail (Failure "perf has been killed")
     in
 
     Lwt_process.with_process_full ?env cmd produce_result
@@ -87,11 +113,13 @@ module Runner = struct
     Lwt_list.fold_left_s
       (fun acc m -> match m with
          | Topic.Perf evt ->
-             (Perf_wrapper.run ?env:b.b_env ~evt ~nb_iter b.b_cmd
+             let open Perf_wrapper in
+             (run ?env:b.b_env ~evt ~nb_iter b.b_cmd
               >|= function
                 (* Only append the result to the list if the benchmark
                    exited with code 0 *)
-              | rv, rs when rv = 0 -> rs @ acc
+              | { return_value; stdout; res } when return_value = 0 ->
+                  res @ acc
               | _ -> acc
              )
          | _ -> raise_lwt Not_implemented

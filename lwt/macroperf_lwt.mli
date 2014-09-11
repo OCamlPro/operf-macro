@@ -12,14 +12,18 @@ module Perf_wrapper : sig
   (** A measure can be expressed as an int or a float, or failed to be
       measured *)
 
-  type result = (Topic.t * measure) list
+  type result = private {
+    return_value: int;
+    stdout: string;
+    res: (Topic.t * measure) list
+  }
   (** A result is a list of perf topics and associated measure *)
 
   val run :
     ?env:string list ->
     ?evt:event ->
     ?nb_iter:int ->
-    string list -> (int * result) Lwt.t
+    string list -> result Lwt.t
     (** [run ?env ?evts ?nb_iter cmd] is a thread that will launch
         [cmd] in perf -- asking perf to run it [nb_iter] times
         (default: 1) -- and eventually return the perf result as well
