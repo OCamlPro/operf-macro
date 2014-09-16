@@ -84,11 +84,11 @@ module Runner = struct
 
   let run_exn ?nb_iter ?topics b =
     let nb_iter = match nb_iter with
-      | None -> b.Benchmark.b_nb_iter
+      | None -> b.Benchmark.nb_iter
       | Some nb_iter -> nb_iter in
     let open Benchmark in
     let topics = match topics with
-      | None -> TSet.elements b.b_measures
+      | None -> TSet.elements b.measures
       | Some ts -> ts
     in
     (* Transform Perf topics into a combined Perf topic so that
@@ -114,7 +114,7 @@ module Runner = struct
       (fun acc m -> match m with
          | Topic.Perf evt ->
              let open Perf_wrapper in
-             (run ?env:b.b_env ~evt ~nb_iter b.b_cmd
+             (run ?env:b.env ~evt ~nb_iter b.cmd
               >|= function
                 (* Only append the result to the list if the benchmark
                    exited with code 0 *)

@@ -20,22 +20,22 @@ module Benchmark : sig
   type speed = [`Fast | `Slow | `Slower]
 
   type t = private {
-    b_name: string;
+    name: string;
     (** Identifier for a benchmark, should be unique amongst
         benchmarks *)
-    b_descr: string option;
+    descr: string option;
     (** Optional description of the benchmark *)
-    b_cmd: string list;
+    cmd: string list;
     (** Command line to run the benchmark. The first item of the list
         is the full path of the benchmark executable, or its name if in
         PATH *)
-    b_env: string list option;
+    env: string list option;
     (** Optional environment for the benchmark *)
-    b_nb_iter: int;
+    nb_iter: int;
     (** Number of iterations *)
-    b_speed: speed;
+    speed: speed;
     (** Use to characterize the execution time of a benchmark *)
-    b_measures: TSet.t;
+    measures: TSet.t;
     (** Set of quantities to measure *)
   }
 
@@ -58,11 +58,11 @@ module Result : sig
   type measure = [ `Int of int | `Float of float | `Error ]
 
   type t = private {
-    res_src: Benchmark.t;
+    src: Benchmark.t;
     (** The benchmark used to produce this result *)
-    res_date: Unix.tm option;
+    date: Unix.tm option;
     (** The date when the benchmark was run *)
-    res_data: (Topic.t * measure) list;
+    data: (Topic.t * measure) list;
     (** The set of measured quantities during the run *)
   }
 

@@ -18,7 +18,7 @@ let perf copts cmd evts bench_out =
   let name = String.sub !name 0 (String.length !name - 1) in
   let th =
     let bench =
-    Benchmark.(make
+    Benchmark.make
                  ~name
                  ~descr:("Benchmark of ``" ^ name ^
                          "'' avg. over " ^ string_of_int copts.nb_iter ^
@@ -26,7 +26,7 @@ let perf copts cmd evts bench_out =
                  ~cmd
                  ~nb_iter:copts.nb_iter
                  ~speed:`Fast
-                 ~measures:[Topic.Perf evts] ())
+                 ~measures:[Topic.Perf evts] ()
     in
     Runner.run_exn bench >|= fun res ->
     Result.to_string res |> fun res ->
