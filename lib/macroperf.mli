@@ -65,6 +65,9 @@ module Result : sig
     (** The benchmark used to produce this result *)
     date: Unix.tm option;
     (** The date when the benchmark was run *)
+    switch: string;
+    (** The version of the compiler used to compile the benchmark
+        program *)
     data: (Topic.t * measure) list;
     (** The set of measured quantities during the run *)
   }
@@ -73,8 +76,9 @@ module Result : sig
   val to_string : t -> string
 
   val make :
-    ?date:Unix.tm ->
     src:Benchmark.t ->
+    ?date:Unix.tm ->
+    ?switch:string ->
     data:(Topic.t * measure) list -> unit ->
     t
 end
