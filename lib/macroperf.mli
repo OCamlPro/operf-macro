@@ -25,8 +25,6 @@ module Benchmark : sig
         benchmarks *)
     descr: string option;
     (** Optional description of the benchmark *)
-    deps: string list;
-    (** List of OPAM packages on which this benchmark depends *)
     cmd: string list;
     (** Command line to run the benchmark. The first item of the list
         is the full path of the benchmark executable, or its name if in
@@ -44,7 +42,6 @@ module Benchmark : sig
   val make :
     name:string ->
     ?descr:string ->
-    ?deps:string list ->
     cmd:string list ->
     ?env:string list ->
     ?nb_iter:int ->
