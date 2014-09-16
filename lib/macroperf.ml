@@ -32,6 +32,7 @@ module Benchmark = struct
   type t = {
     name: string;
     descr: string option;
+    deps: string list;
     cmd: string list;
     env: string list option;
     nb_iter: int;
@@ -42,14 +43,9 @@ module Benchmark = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~name ?descr ~cmd ?env ?(nb_iter=1) ~speed ~measures () =
+  let make ~name ?descr ?(deps=[]) ~cmd ?env ?(nb_iter=1)  ~speed ~measures () =
     {
-      name=name;
-      descr=descr;
-      cmd=cmd;
-      env=env;
-      nb_iter=nb_iter;
-      speed=speed;
+      name; descr; deps; cmd; env; nb_iter; speed;
       measures=TSet.of_list measures;
     }
 end
