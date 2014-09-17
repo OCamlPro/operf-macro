@@ -41,7 +41,7 @@ let perf copts cmd evts bench_out =
         close_out oc
   in Lwt_main.run th
 
-let load copts files =
+let run copts files =
   let th =
     let inner oc file =
       let bench_str =
@@ -139,7 +139,7 @@ let perf_cmd =
   Term.(pure perf $ copts_t $ cmd $ evts $ bench_out),
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
-let load_cmd =
+let run_cmd =
   let filename =
     let doc = "File containing a benchmark description." in
     Arg.(non_empty & pos_all file [] & info [] ~docv:"file" ~doc)
@@ -149,10 +149,10 @@ let load_cmd =
     `S "DESCRIPTION";
     `P "Load macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure load $ copts_t $ filename),
-  Term.info "load" ~doc ~sdocs:copts_sect ~man
+  Term.(pure run $ copts_t $ filename),
+  Term.info "run" ~doc ~sdocs:copts_sect ~man
 
-let cmds = [help_cmd; load_cmd; perf_cmd]
+let cmds = [help_cmd; run_cmd; perf_cmd]
 
 let () = match Term.eval_choice default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0
