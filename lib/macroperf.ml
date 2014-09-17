@@ -52,15 +52,9 @@ end
 module Result = struct
   type measure = [ `Int of int | `Float of float | `Error ] with sexp
 
-  module Unix = struct
-    include Unix
-    let tm_of_sexp sexp = sexp |> float_of_sexp |> Unix.gmtime
-    let sexp_of_tm tm = Unix.mktime tm |> fst |> sexp_of_float
-  end
-
   type t = {
     src: Benchmark.t;
-    date: Unix.tm option;
+    date: float;
     switch: string;
     data: (Topic.t * measure) list;
   } with sexp
@@ -68,7 +62,7 @@ module Result = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~src ?date ?switch ~data () =
+  let make ~src ~date ?switch ~data () =
     let switch = match switch with
       | None ->
           (match !OpamGlobals.switch with

@@ -8,13 +8,54 @@ type copts = {
   nb_iter: int;
 }
 
-let oc_of_copts = function
-  | {output_file=""; _} -> stdout
-  | {output_file;_} -> open_out output_file
+let with_oc_safe f file =
+  let oc = open_out file in
+  try
+    f oc;
+    close_out oc
+  with exn ->
+    close_out oc;
+    raise exn
+
+let with_oc_of_copts f = function
+  | {output_file=""; _} -> f stdout
+  | {output_file;_} -> with_oc_safe f output_file
+
+let write_res ?file res =
+  let res_string = Result.to_string res in
+
+  (* Write the result into stdout, or <file> if specified *)
+  (match file with
+  | None -> Printf.printf "%s\n" res_string;
+  | Some fn ->
+      with_oc_safe (fun oc -> Printf.fprintf oc "%s\n" res_string) fn);
+
+  (* Write the result in cache too if cache exists *)
+  let rex = Re_pcre.regexp " " in
+  let name = res.Result.src.Benchmark.name |> String.trim in
+  let name = Re_pcre.substitute ~rex ~subst:(fun _ -> "_") name in
+  try
+    let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () in
+    let res_file = cache_dir ^ "/operf/macro/" ^ name
+                   ^ "/" ^ string_of_float res.Result.date ^ ".result" in
+    XDGBaseDir.mkdir_openfile
+      (fun fn -> let oc = open_out fn in
+        try
+          Printf.fprintf oc "%s\n" res_string;
+          close_out oc
+        with exn ->
+          close_out oc;
+          raise exn
+      ) res_file
+  with Not_found -> ()
+
+let write_res_copts copts res = match copts with
+  | {output_file=""; _} -> write_res res
+  | {output_file;_} -> write_res ~file:output_file res
 
 let perf copts cmd evts bench_out =
   let name = ref "" in
-  List.iter (fun c -> name := !name ^ c ^ " ") cmd;
+  List.iter (fun c -> name := !name ^ c ^ "_") cmd;
   let name = String.sub !name 0 (String.length !name - 1) in
   let th =
     let bench =
@@ -29,10 +70,11 @@ let perf copts cmd evts bench_out =
                  ~measures:[Topic.Perf evts] ()
     in
     Runner.run_exn bench >|= fun res ->
-    Result.to_string res |> fun res ->
-    let oc = oc_of_copts copts in
-    Printf.fprintf oc "%s\n" res;
-    close_out oc;
+
+    (* Write the result in the file specified by -o, or stdout and
+       maybe in cache as well *)
+    write_res_copts copts res;
+
     match bench_out with
     | None -> ()
     | Some benchfile ->
@@ -43,7 +85,7 @@ let perf copts cmd evts bench_out =
 
 let run copts files =
   let th =
-    let inner oc file =
+    let run_inner file =
       let bench_str =
         let ic = open_in file in
         try
@@ -53,14 +95,12 @@ let run copts files =
         with exn ->
           close_in ic; raise exn
       in
-      bench_str |> Benchmark.of_string |> Runner.run_exn >|= fun res ->
-      Result.to_string res |> fun res ->
-      Printf.fprintf oc "%s\n" res
+      bench_str |> Benchmark.of_string |> Runner.run_exn
     in
-    let oc = oc_of_copts copts in
-    Lwt_list.iter_s (inner oc) files >|= fun () ->
-    close_out oc
-  in Lwt_main.run th
+    Lwt_list.map_s run_inner files >|= fun res ->
+    List.iter (write_res_copts copts) res
+  in
+  Lwt_main.run th
 
 let help copts man_format cmds topic = match topic with
   | None -> `Help (`Pager, None) (* help about the program. *)
@@ -144,10 +184,10 @@ let run_cmd =
     let doc = "File containing a benchmark description." in
     Arg.(non_empty & pos_all file [] & info [] ~docv:"file" ~doc)
   in
-  let doc = "Load macrobenchmarks from files." in
+  let doc = "Run macrobenchmarks from files." in
   let man = [
     `S "DESCRIPTION";
-    `P "Load macrobenchmarks from files."] @ help_secs
+    `P "Run macrobenchmarks from files."] @ help_secs
   in
   Term.(pure run $ copts_t $ filename),
   Term.info "run" ~doc ~sdocs:copts_sect ~man

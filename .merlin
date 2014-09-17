@@ -11,3 +11,4 @@ PKG re.pcre
 PKG sexplib
 PKG cmdliner
 PKG opam-lib
+PKG xdg-basedir

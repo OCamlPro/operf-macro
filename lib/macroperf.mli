@@ -60,7 +60,7 @@ module Result : sig
   type t = private {
     src: Benchmark.t;
     (** The benchmark used to produce this result *)
-    date: Unix.tm option;
+    date: float;
     (** The date when the benchmark was run *)
     switch: string;
     (** The version of the compiler used to compile the benchmark
@@ -74,7 +74,7 @@ module Result : sig
 
   val make :
     src:Benchmark.t ->
-    ?date:Unix.tm ->
+    date:float ->
     ?switch:string ->
     data:(Topic.t * measure) list -> unit ->
     t

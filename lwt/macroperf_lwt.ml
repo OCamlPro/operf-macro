@@ -127,7 +127,7 @@ module Runner = struct
       [] topics
     >|= fun data ->
     Result.make
-      ~date:(Unix.(gettimeofday () |> gmtime)) ~src:b ~data ()
+      ~date:(Unix.gettimeofday ()) ~src:b ~data ()
 
   let run ?nb_iter ?topics b =
     try_lwt run_exn ?nb_iter ?topics b >|= fun r -> Some r
