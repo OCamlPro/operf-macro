@@ -37,7 +37,7 @@ let write_res ?file res =
   try
     let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () in
     let res_file = cache_dir ^ "/operf/macro/" ^ name
-                   ^ "/" ^ string_of_float res.Result.date ^ ".result" in
+                   ^ "/" ^ res.Result.context_id ^ ".result" in
     XDGBaseDir.mkdir_openfile
       (fun fn -> let oc = open_out fn in
         try

@@ -1,9 +1,9 @@
 module Topic : sig
   type t =
     (** Time related *)
-    | Time_real
-    | Time_user
-    | Time_sys
+    | Time_real (* Unix.gettimeofday () *)
+    | Time_user (* Lwt_unix.wait4 *)
+    | Time_sys (* Lwt_unix.wait4 *)
 
     (** GC related *)
     | Allocs_major
@@ -60,11 +60,10 @@ module Result : sig
   type t = private {
     src: Benchmark.t;
     (** The benchmark used to produce this result *)
-    date: float;
-    (** The date when the benchmark was run *)
-    switch: string;
-    (** The version of the compiler used to compile the benchmark
-        program *)
+    context_id: string;
+    (** A unique identifier for the context used to produce the
+        benchmark executable: compiler used, build options of this
+        compiler, etc. *)
     data: (Topic.t * measure) list;
     (** The set of measured quantities during the run *)
   }
@@ -74,8 +73,7 @@ module Result : sig
 
   val make :
     src:Benchmark.t ->
-    date:float ->
-    ?switch:string ->
+    ?context_id:string ->
     data:(Topic.t * measure) list -> unit ->
     t
 end

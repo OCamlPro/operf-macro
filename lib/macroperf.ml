@@ -54,27 +54,13 @@ module Result = struct
 
   type t = {
     src: Benchmark.t;
-    date: float;
-    switch: string;
+    context_id: string;
     data: (Topic.t * measure) list;
   } with sexp
 
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~src ~date ?switch ~data () =
-    let switch = match switch with
-      | None ->
-          (match !OpamGlobals.switch with
-           | `Command_line s
-           | `Env s -> s
-           | `Not_set ->
-               let root = OpamFilename.Dir.of_string
-                   OpamGlobals.default_opam_dir in
-               let config = OpamPath.config root in
-               OpamFile.Config.switch (OpamFile.Config.read config) |>
-               OpamSwitch.to_string
-          )
-      | Some s -> s in
-    { src; date; data; switch; }
+  let make ~src ?(context_id="") ~data () =
+    { src; context_id; data; }
 end
