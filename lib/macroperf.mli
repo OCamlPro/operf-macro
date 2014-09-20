@@ -1,25 +1,22 @@
 module Topic : sig
+  type time = [ `Real | `User | `Sys ]
+  type gc = [ `Alloc_major | `Alloc_minor | `Compactions ]
+
   type t =
     (** Time related *)
-    | Time_real (* Unix.gettimeofday () *)
-    | Time_user (* Lwt_unix.wait4 *)
-    | Time_sys (* Lwt_unix.wait4 *)
+    | Time of time
 
     (** GC related *)
-    | Allocs_major
-    | Allocs_minor
-    | Compactions
+    | Gc of gc
 
     (** PERF-STAT(1) related (linux only) *)
     | Perf of string
 end
 
-module TSet : Set.S with type elt = Topic.t
-
 module Benchmark : sig
   type speed = [`Fast | `Slow | `Slower]
 
-  type t = private {
+  type t = {
     name: string;
     (** Identifier for a benchmark, should be unique amongst
         benchmarks *)
@@ -35,7 +32,7 @@ module Benchmark : sig
     (** Number of iterations *)
     speed: speed;
     (** Use to characterize the execution time of a benchmark *)
-    measures: TSet.t;
+    measures: Topic.t list;
     (** Set of quantities to measure *)
   }
 
@@ -55,18 +52,45 @@ module Benchmark : sig
 end
 
 module Result : sig
-  type measure = [ `Int of int | `Float of float | `Error ]
+  module Measure : sig
+    type t = [ `Int of int | `Float of float | `Error ]
+    (** Type of a measure. This is to discriminate between discrete
+        events (i.e. cpu cycles), continuous events (i.e. time) and
+        errors (the measurement operation failed). *)
 
-  type t = private {
+    val of_string : string -> t
+    (** [of string msr_string] is the measure resulting from the
+        cast of [msr_string]. *)
+  end
+
+  module Execution : sig
+    type t = {
+      return_value: int;
+      stdout: string;
+      stderr: string;
+      data: (Topic.t * Measure.t) list;
+    }
+    (** Type representing the execution of a benchmark. *)
+
+    val make : return_value:int -> stdout:string -> stderr:string ->
+      data:(Topic.t * Measure.t) list -> t
+  end
+
+  type t = {
     src: Benchmark.t;
     (** The benchmark used to produce this result *)
     context_id: string;
     (** A unique identifier for the context used to produce the
         benchmark executable: compiler used, build options of this
         compiler, etc. *)
-    data: (Topic.t * measure) list;
-    (** The set of measured quantities during the run *)
+    execs: Execution.t list;
+    (** This contain the list of executions, containing measurements
+        plus additional useful information about the individual
+        runs. *)
   }
+  (** Type of a result. This can correspond to several runs of the
+      same benchmark,if requested measures cannot be performed in one
+      go. *)
 
   val of_string : string -> t
   val to_string : t -> string
@@ -74,6 +98,6 @@ module Result : sig
   val make :
     src:Benchmark.t ->
     ?context_id:string ->
-    data:(Topic.t * measure) list -> unit ->
+    execs:Execution.t list -> unit ->
     t
 end

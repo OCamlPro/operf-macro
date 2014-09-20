@@ -5,24 +5,7 @@ let section = Lwt_log.Section.make "macroperf_lwt"
 
 module Perf_wrapper = struct
 
-  type event = string
-
-  type measure = [ `Int of int | `Float of float | `Error ]
-  (** A measure can be expressed as an int or a float. *)
-
-  let measure_of_string s =
-    try `Int (int_of_string s) with _ ->
-      try `Float (float_of_string s) with _ ->
-        `Error
-
-  type result = {
-    return_value: int;
-    stdout: string;
-    res: (Topic.t * measure) list
-  }
-  (** A result is a list of perf events and associated measures *)
-
-  let run ?env ?(evt="") ?(nb_iter=1) cmd =
+  let run ?env ?(evts=[]) ?(nb_iter=1) cmd =
     (* perf does not care about PATH *)
     (match cmd with
      | [] -> fail (Invalid_argument "empty command")
@@ -37,9 +20,9 @@ module Perf_wrapper = struct
          return (abs_cmd::args))
     >>= fun cmd ->
     let perf_cmdline = ["perf"; "stat"; "-x,"; "-r"; string_of_int nb_iter] in
-    let perf_cmdline = match evt with
-      | "" -> perf_cmdline
-      | evt -> perf_cmdline @ ["-e"; evt] in
+    let perf_cmdline = match evts with
+      | [] -> perf_cmdline
+      | _ -> perf_cmdline @ ["-e"; String.concat "," evts] in
     let cmd = "", Array.of_list @@ perf_cmdline @ cmd in
     let env = match env with
       | None -> Some [|"LANG=C"|]
@@ -59,13 +42,14 @@ module Perf_wrapper = struct
       pfull#status >>= function
       | Unix.WEXITED return_value ->
           drain_stderr [] >|= fun res ->
-          {
+          Result.Execution.{
             return_value;
             stdout;
-            res=(List.fold_left
+            stderr=""; (* Perf writes its result on stderr... *)
+            data=(List.fold_left
                 (fun acc l -> match l with
-                   | [v;"";event; ] -> (Topic.Perf event, measure_of_string v)::acc
-                   | [v;"";event; _] -> (Topic.Perf event, measure_of_string v)::acc
+                   | [v;"";event; ] -> (Topic.Perf event, Result.Measure.of_string v)::acc
+                   | [v;"";event; _] -> (Topic.Perf event, Result.Measure.of_string  v)::acc
                    | l ->
                        Lwt_log.ign_warning_f ~section
                          "Ignoring perf result line [%s]" (String.concat "," l);
@@ -79,54 +63,84 @@ module Perf_wrapper = struct
     Lwt_process.with_process_full ?env cmd produce_result
 end
 
+module Time_wrapper = struct
+  (* I'm not sure of the overhead introduced in the measurement of
+     time real, but it should not be relied upon. *)
+  let run ?env ?(nb_iter=1) cmd times =
+    let env = match env with
+      | None -> None
+      | Some e -> Some (Array.of_list e) in
+    let produce_result t_start p =
+      p#rusage >>= fun rusage ->
+      let t_end = Unix.gettimeofday () in
+      let data = List.map
+          (function
+            | `Real -> (Topic.(Time `Real), `Float (t_end -. t_start))
+            | `User -> (Topic.(Time `User), `Float rusage.Lwt_unix.ru_utime)
+            | `Sys  -> (Topic.(Time `Sys), `Float rusage.Lwt_unix.ru_stime))
+          times in
+      Lwt_io.read p#stdout >>= fun stdout ->
+      Lwt_io.read p#stderr >>= fun stderr ->
+      p#status >>= function
+      | Unix.WEXITED return_value ->
+          return Result.Execution.{ return_value; stdout; stderr; data; }
+      | _ -> fail (Failure (Printf.sprintf "%s has been killed."
+                              (String.concat "" cmd)))
+    in
+    let cmd = "", Array.of_list cmd in
+    let t_start = Unix.gettimeofday () in
+    Lwt_process.with_process_full ?env cmd (produce_result t_start)
+end
+
 module Runner = struct
   exception Not_implemented
 
   let run_exn ?nb_iter ?topics b =
-    let nb_iter = match nb_iter with
-      | None -> b.Benchmark.nb_iter
-      | Some nb_iter -> nb_iter in
     let open Benchmark in
+
+    let nb_iter = match nb_iter with
+      | None -> b.nb_iter
+      | Some nb_iter -> nb_iter in
     let topics = match topics with
-      | None -> TSet.elements b.measures
+      | None -> b.measures
       | Some ts -> ts
     in
-    (* Transform Perf topics into a combined Perf topic so that
-       PERF-STAT(1) will execute them at once. *)
-    let perf_evts =
-      List.fold_left
-        (fun acc topic -> match acc, topic with
-           | None, Topic.Perf evt -> Some [evt]
-           | Some evts, Topic.Perf evt -> Some (evt::evts)
-           | _ -> acc
-        ) None topics
+
+    (* Transform individial topics into a list of executions *)
+    let execs =
+      let t,g,p = List.fold_left
+          (fun (t,g,p) -> function
+             | Topic.Time e -> (e::t,g,p)
+             | Topic.Gc   e -> (t,e::g,p)
+             | Topic.Perf e -> (t,g,e::p)
+          )
+          ([],[],[]) topics in
+      let t = if t = [] then None else Some (`Time t) in
+      let g = if g = [] then None else Some (`Gc g) in
+      let p = if p = [] then None else Some (`Perf p) in
+
+      List.fold_left (fun a -> function
+          | Some e -> e::a
+          | None -> a
+        ) [] [t;g;p]
+
     in
-    let topics =
-      List.filter (function Topic.Perf _ -> false | _ -> true) topics in
-    let topics = match perf_evts with
-      | None -> topics
-      | Some evts -> (Topic.Perf (String.concat "," evts))::topics
-      (* At this point, we replaced all individual "Perf _" topics
-         with one global "Perf _" containing all the individual
-         evts. *)
-    in
+
+    (* Benchmarks are run sequentially here *)
     Lwt_list.fold_left_s
       (fun acc m -> match m with
-         | Topic.Perf evt ->
-             let open Perf_wrapper in
-             (run ?env:b.env ~evt ~nb_iter b.cmd
-              >|= function
-                (* Only append the result to the list if the benchmark
-                   exited with code 0 *)
-              | { return_value; stdout; res } when return_value = 0 ->
-                  res @ acc
-              | _ -> acc
-             )
+         | `Time times ->
+             Time_wrapper.(run ?env:b.env ~nb_iter b.cmd times >|= fun res -> res :: acc)
+
+         | `Perf evts ->
+             Perf_wrapper.(run ?env:b.env ~evts ~nb_iter b.cmd >|= fun res -> res :: acc)
+
          | _ -> raise_lwt Not_implemented
       )
-      [] topics
-    >|= fun data ->
-    Result.make ~context_id:"unknown" ~src:b ~data ()
+      [] execs
+    >|= fun execs ->
+    Result.make ~context_id:"unknown" ~src:b ~execs ()
+
 
   let run ?nb_iter ?topics b =
     try_lwt run_exn ?nb_iter ?topics b >|= fun r -> Some r

@@ -53,21 +53,23 @@ let write_res_copts copts res = match copts with
   | {output_file=""; _} -> write_res res
   | {output_file;_} -> write_res ~file:output_file res
 
-let perf copts cmd evts bench_out =
-  let name = ref "" in
-  List.iter (fun c -> name := !name ^ c ^ "_") cmd;
-  let name = String.sub !name 0 (String.length !name - 1) in
+(* Generic function to create and run a benchmark *)
+let make_bench_and_run copts cmd bench_out measures =
+  (* Build the name of the benchmark from the command line, but
+     replace " " by "_" *)
+  let name = String.concat " " cmd in
+  let name_uscore = String.concat "_" cmd in
   let th =
     let bench =
     Benchmark.make
-                 ~name
+                 ~name:name_uscore
                  ~descr:("Benchmark of ``" ^ name ^
                          "'' avg. over " ^ string_of_int copts.nb_iter ^
                          " iterations.")
                  ~cmd
                  ~nb_iter:copts.nb_iter
                  ~speed:`Fast
-                 ~measures:[Topic.Perf evts] ()
+                 ~measures ()
     in
     Runner.run_exn bench >|= fun res ->
 
@@ -82,6 +84,17 @@ let perf copts cmd evts bench_out =
         Printf.fprintf oc "%s" (Benchmark.to_string bench);
         close_out oc
   in Lwt_main.run th
+
+let perf copts cmd evts bench_out =
+  (* Separate events from the event list given in PERF format *)
+  let rex = Re_pcre.regexp "," in
+  let evts = Re_pcre.split ~rex evts in
+  let evts = List.map (fun e -> Topic.Perf e) evts in
+  make_bench_and_run copts cmd bench_out evts
+
+let time copts cmd bench_out =
+  make_bench_and_run copts cmd bench_out
+    Topic.[Time `Real; Time `User; Time `Sys]
 
 let run copts files =
   let th =
@@ -179,6 +192,22 @@ let perf_cmd =
   Term.(pure perf $ copts_t $ cmd $ evts $ bench_out),
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
+let time_cmd =
+  let bench_out =
+    let doc = "Export the generated bench to file." in
+    Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc) in
+  let cmd =
+    let doc = "Any command you can specify in a shell." in
+    Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
+  in
+  let doc = "Macrobenchmark measuring time." in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Macrobenchmark measuring time."] @ help_secs
+  in
+  Term.(pure time $ copts_t $ cmd $ bench_out),
+  Term.info "time" ~doc ~sdocs:copts_sect ~man
+
 let run_cmd =
   let filename =
     let doc = "File containing a benchmark description." in
@@ -192,7 +221,7 @@ let run_cmd =
   Term.(pure run $ copts_t $ filename),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
-let cmds = [help_cmd; run_cmd; perf_cmd]
+let cmds = [help_cmd; run_cmd; perf_cmd; time_cmd]
 
 let () = match Term.eval_choice default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0
