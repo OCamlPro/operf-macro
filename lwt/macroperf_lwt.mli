@@ -1,10 +1,6 @@
 open Macroperf
 
 module Runner : sig
-  exception Not_implemented
-  (** Raised when the implementation of the measurement for a
-      requested topic is missing. *)
-
   val run_exn :
     ?nb_iter:int ->
     ?topics:Topic.t list ->

@@ -81,6 +81,10 @@ module Result = struct
 
     let make ~return_value ~stdout ~stderr ~data =
       { return_value; stdout; stderr; data; }
+
+    let strip chan t = match chan with
+      | `Stdout -> { t with stdout="" }
+      | `Stderr -> { t with stderr="" }
   end
 
   type t = {
@@ -94,4 +98,10 @@ module Result = struct
 
   let make ~src ?(context_id="") ~execs () =
     { src; context_id; execs; }
+
+  let strip chan t = match chan with
+    | `Stdout ->
+        { t with execs = List.map (Execution.strip `Stdout) t.execs }
+    | `Stderr ->
+        { t with execs = List.map (Execution.strip `Stderr) t.execs }
 end

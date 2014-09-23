@@ -126,8 +126,6 @@ module Libperf_wrapper = struct
 end
 
 module Runner = struct
-  exception Not_implemented
-
   type execs = {
     time: Topic.time list;
     gc: Topic.gc list;

@@ -80,6 +80,10 @@ module Result : sig
 
     val make : return_value:int -> stdout:string -> stderr:string ->
       data:(Topic.t * Measure.t) list -> t
+
+    val strip : [`Stdout | `Stderr] -> t -> t
+    (** [strip t chan] is an execution where the output of the program
+        in [chan] has been discarded. *)
   end
 
   type t = {
@@ -106,4 +110,8 @@ module Result : sig
     ?context_id:string ->
     execs:Execution.t list -> unit ->
     t
+
+  val strip : [`Stdout | `Stderr] -> t -> t
+  (** [strip t chan is a result where the output of the program
+      executions in [chan] have been disabled. *)
 end

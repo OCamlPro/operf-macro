@@ -6,6 +6,7 @@ open Macroperf_lwt
 type copts = {
   output_file: string;
   nb_iter: int;
+  ignore_out: [`Stdout | `Stderr] list;
 }
 
 let with_oc_safe f file =
@@ -21,7 +22,8 @@ let with_oc_of_copts f = function
   | {output_file=""; _} -> f stdout
   | {output_file;_} -> with_oc_safe f output_file
 
-let write_res ?file res =
+let write_res ?(strip=[]) ?file res =
+  let res = List.fold_left (fun a s -> Result.strip s a) res strip in
   let res_string = Result.to_string res in
 
   (* Write the result into stdout, or <file> if specified *)
@@ -50,8 +52,8 @@ let write_res ?file res =
   with Not_found -> ()
 
 let write_res_copts copts res = match copts with
-  | {output_file=""; _} -> write_res res
-  | {output_file;_} -> write_res ~file:output_file res
+  | {output_file=""; ignore_out } -> write_res ~strip:ignore_out res
+  | {output_file; ignore_out } -> write_res ~strip:ignore_out ~file:output_file res
 
 (* Generic function to create and run a benchmark *)
 let make_bench_and_run copts cmd bench_out measures =
@@ -155,7 +157,16 @@ let help_secs = [
  `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
  `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
-let copts output_file nb_iter = { output_file; nb_iter; }
+let copts output_file nb_iter ignore_out =
+  { output_file; nb_iter;
+    ignore_out=List.map
+        (function
+          | "stdout" -> `Stdout
+          | "stderr" -> `Stderr
+          | _ -> invalid_arg "copts"
+        )
+        ignore_out
+  }
 
 let copts_t =
   let docs = copts_sect in
@@ -164,9 +175,11 @@ let copts_t =
     Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc) in
   let nb_iter =
     let doc = "Number of iterations (default: 1)." in
-    Arg.(value & opt int 1 & info ["r"; "repeat"] ~docv:"<n>" ~docs ~doc)
-  in
-  Term.(pure copts $ output_file $ nb_iter)
+    Arg.(value & opt int 1 & info ["r"; "repeat"] ~docv:"<n>" ~docs ~doc) in
+  let ignore_out =
+    let doc = "Discard program output (default: none)." in
+    Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
+  Term.(pure copts $ output_file $ nb_iter $ ignore_out)
 
 let help_cmd =
   let topic =
