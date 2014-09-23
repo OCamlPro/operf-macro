@@ -92,6 +92,21 @@ let perf copts cmd evts bench_out =
   let evts = List.map (fun e -> Topic.(Topic (e, Perf))) evts in
   make_bench_and_run copts cmd bench_out evts
 
+let libperf copts cmd evts bench_out =
+  let rex = Re_pcre.regexp "," in
+  let evts = Re_pcre.split ~rex evts in
+  let rex = Re_pcre.regexp "-" in
+  let evts = List.map
+      (fun s -> s
+                |> String.lowercase
+                |> String.capitalize
+                |> Re_pcre.substitute ~rex ~subst:(fun _ -> "_")
+                |> Sexplib.Std.sexp_of_string
+                |> fun s -> Topic.(Topic (Perf.Attr.kind_of_sexp s, Libperf))
+      ) evts
+  in
+  make_bench_and_run copts cmd bench_out evts
+
 let time copts cmd bench_out =
   make_bench_and_run copts cmd bench_out
     Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
@@ -192,6 +207,26 @@ let perf_cmd =
   Term.(pure perf $ copts_t $ cmd $ evts $ bench_out),
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
+let libperf_cmd =
+  let bench_out =
+    let doc = "Export the generated bench to file." in
+    Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc) in
+  let cmd =
+    let doc = "Any command you can specify in a shell." in
+    Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
+  in
+  let evts =
+    let doc = "Equivalent to the -e argument of PERF-STAT(1)." in
+    Arg.(value & opt string "" & info ["e"; "event"] ~docv:"perf-events" ~doc) in
+
+  let doc = "Macrobenchmark using PERF-STAT(1) (Linux only)." in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Wrapper to the PERF-STAT(1) command."] @ help_secs
+  in
+  Term.(pure libperf $ copts_t $ cmd $ evts $ bench_out),
+  Term.info "libperf" ~doc ~sdocs:copts_sect ~man
+
 let time_cmd =
   let bench_out =
     let doc = "Export the generated bench to file." in
@@ -221,7 +256,7 @@ let run_cmd =
   Term.(pure run $ copts_t $ filename),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
-let cmds = [help_cmd; run_cmd; perf_cmd; time_cmd]
+let cmds = [help_cmd; run_cmd; perf_cmd; libperf_cmd; time_cmd]
 
 let () = match Term.eval_choice default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0

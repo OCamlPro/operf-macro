@@ -12,7 +12,7 @@ module Topic = struct
     | Gc : gc kind
 
     (* Use the ocaml-perf binding to perf_event_open(2). *)
-    | Libperf : int kind (* Refer to ocaml-perf for numbers *)
+    | Libperf : Perf.Attr.kind kind
 
     (* Use the perf-stat(1) command (need the perf binary, linux
        only) *)
@@ -25,7 +25,7 @@ module Topic = struct
     match t with
     | Topic (time, Time) -> List [Atom "Time"; sexp_of_time time]
     | Topic (gc, Gc) -> List [Atom "Gc"; sexp_of_gc gc]
-    | Topic (libperf, Libperf) -> List [Atom "Libperf"; sexp_of_int libperf]
+    | Topic (libperf, Libperf) -> List [Atom "Libperf"; Perf.Attr.sexp_of_kind libperf]
     | Topic (perf, Perf) -> List [Atom "Perf"; sexp_of_string perf]
 
   let t_of_sexp s =
@@ -33,7 +33,7 @@ module Topic = struct
     match s with
     | List [Atom "Time"; t] -> Topic (time_of_sexp t, Time)
     | List [Atom "Gc"; t] -> Topic (gc_of_sexp t, Gc)
-    | List [Atom "Libperf"; t] -> Topic (int_of_sexp t, Libperf)
+    | List [Atom "Libperf"; t] -> Topic (Perf.Attr.kind_of_sexp t, Libperf)
     | List [Atom "Perf"; t] -> Topic (string_of_sexp t, Perf)
     | _ -> invalid_arg "t_of_sexp"
 
@@ -63,9 +63,9 @@ end
 
 module Result = struct
   module Measure = struct
-    type t = [ `Int of int | `Float of float | `Error ] with sexp
+    type t = [ `Int of int64 | `Float of float | `Error ] with sexp
     let of_string s =
-      try `Int (int_of_string s) with _ ->
+      try `Int (Int64.of_string s) with _ ->
         try `Float (float_of_string s) with _ ->
           `Error
   end

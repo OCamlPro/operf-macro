@@ -10,7 +10,7 @@ module Topic : sig
     | Gc : gc kind
 
     (** Use the ocaml-perf binding to perf_event_open(2). *)
-    | Libperf : int kind (** Refer to ocaml-perf for numbers *)
+    | Libperf : Perf.Attr.kind kind (** Refer to ocaml-perf for numbers *)
 
     (** Use the perf-stat(1) command (need the perf binary, linux
         only) *)
@@ -59,7 +59,7 @@ end
 
 module Result : sig
   module Measure : sig
-    type t = [ `Int of int | `Float of float | `Error ]
+    type t = [ `Int of int64 | `Float of float | `Error ]
     (** Type of a measure. This is to discriminate between discrete
         events (i.e. cpu cycles), continuous events (i.e. time) and
         errors (the measurement operation failed). *)

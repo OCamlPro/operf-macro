@@ -1,18 +1,5 @@
 open Macroperf
 
-module Perf_wrapper : sig
-  (** Wrapper for the PERF-STAT(1) command. *)
-
-  val run :
-    ?env:string list ->
-    ?evts:string list ->
-    ?nb_iter:int ->
-    string list -> Result.Execution.t Lwt.t
-    (** [run ?env ?evts ?nb_iter cmd] is a thread that will launch
-        [cmd] in perf -- asking perf to run it [nb_iter] times
-        (default: 1). *)
-end
-
 module Runner : sig
   exception Not_implemented
   (** Raised when the implementation of the measurement for a

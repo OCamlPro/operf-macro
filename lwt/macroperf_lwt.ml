@@ -3,9 +3,19 @@ open Macroperf
 
 let section = Lwt_log.Section.make "macroperf_lwt"
 
-module Perf_wrapper = struct
+module Wrapper_common = struct
 
-  let run ?env ?(evts=[]) ?(nb_iter=1) cmd =
+  let run_n f n =
+    let rec run_n acc = function
+      | 0 -> return acc
+      | n -> f () >>= fun exec -> run_n (exec::acc) (n-1)
+    in run_n [] n
+end
+
+module Perf_wrapper = struct
+  include Wrapper_common
+
+  let run_once ?env cmd evts =
     (* perf does not care about PATH *)
     (match cmd with
      | [] -> fail (Invalid_argument "empty command")
@@ -19,7 +29,7 @@ module Perf_wrapper = struct
          ) >>= fun abs_cmd ->
          return (abs_cmd::args))
     >>= fun cmd ->
-    let perf_cmdline = ["perf"; "stat"; "-x,"; "-r"; string_of_int nb_iter] in
+    let perf_cmdline = ["perf"; "stat"; "-x,"; ] in
     let perf_cmdline = match evts with
       | [] -> perf_cmdline
       | _ -> perf_cmdline @ ["-e"; String.concat "," evts] in
@@ -47,50 +57,72 @@ module Perf_wrapper = struct
             stdout;
             stderr=""; (* Perf writes its result on stderr... *)
             data=(List.fold_left
-                (fun acc l -> match l with
-                   | [v;"";event; ]
-                   | [v;"";event; _] ->
-                       (Topic.(Topic (event, Perf)), Result.Measure.of_string  v)::acc
-                   | l ->
-                       Lwt_log.ign_warning_f ~section
-                         "Ignoring perf result line [%s]" (String.concat "," l);
-                       acc
-                )
-                [] res);
+                    (fun acc l -> match l with
+                       | [v;"";event; ]
+                       | [v;"";event; _] ->
+                           (Topic.(Topic (event, Perf)), Result.Measure.of_string  v)::acc
+                       | l ->
+                           Lwt_log.ign_warning_f ~section
+                             "Ignoring perf result line [%s]" (String.concat "," l);
+                           acc
+                    )
+                    [] res);
           }
       | _ -> fail (Failure "perf has been killed")
     in
-
     Lwt_process.with_process_full ?env cmd produce_result
+
+  let run ?env ?(nb_iter=1) cmd evts =
+    run_n (fun () -> run_once ?env cmd evts) nb_iter
 end
 
 module Time_wrapper = struct
+  include Wrapper_common
+
   (* I'm not sure of the overhead introduced in the measurement of
      time real, but it should not be relied upon. *)
+    let run_once ?env cmd times =
+      let env = match env with
+        | None -> None
+        | Some e -> Some (Array.of_list e) in
+      let produce_result t_start p =
+        p#rusage >>= fun rusage ->
+        let t_end = Unix.gettimeofday () in
+        let data = List.map
+            (function
+              | `Real -> (Topic.(Topic (`Real, Time)), `Float (t_end -. t_start))
+              | `User -> (Topic.(Topic (`User, Time)), `Float rusage.Lwt_unix.ru_utime)
+              | `Sys  -> (Topic.(Topic (`Sys, Time)), `Float rusage.Lwt_unix.ru_stime))
+            times in
+        Lwt_io.read p#stdout >>= fun stdout ->
+        Lwt_io.read p#stderr >>= fun stderr ->
+        p#status >>= function
+        | Unix.WEXITED return_value ->
+            return Result.Execution.{ return_value; stdout; stderr; data; }
+        | _ -> fail (Failure (Printf.sprintf "%s has been killed."
+                                (String.concat "" cmd)))
+      in
+      let cmd = "", Array.of_list cmd in
+      let t_start = Unix.gettimeofday () in
+      Lwt_process.with_process_full ?env cmd (produce_result t_start)
+
   let run ?env ?(nb_iter=1) cmd times =
-    let env = match env with
-      | None -> None
-      | Some e -> Some (Array.of_list e) in
-    let produce_result t_start p =
-      p#rusage >>= fun rusage ->
-      let t_end = Unix.gettimeofday () in
-      let data = List.map
-          (function
-            | `Real -> (Topic.(Topic (`Real, Time)), `Float (t_end -. t_start))
-            | `User -> (Topic.(Topic (`User, Time)), `Float rusage.Lwt_unix.ru_utime)
-            | `Sys  -> (Topic.(Topic (`Sys, Time)), `Float rusage.Lwt_unix.ru_stime))
-          times in
-      Lwt_io.read p#stdout >>= fun stdout ->
-      Lwt_io.read p#stderr >>= fun stderr ->
-      p#status >>= function
-      | Unix.WEXITED return_value ->
-          return Result.Execution.{ return_value; stdout; stderr; data; }
-      | _ -> fail (Failure (Printf.sprintf "%s has been killed."
-                              (String.concat "" cmd)))
-    in
-    let cmd = "", Array.of_list cmd in
-    let t_start = Unix.gettimeofday () in
-    Lwt_process.with_process_full ?env cmd (produce_result t_start)
+    run_n (fun () -> run_once ?env cmd times) nb_iter
+end
+
+module Libperf_wrapper = struct
+  include Wrapper_common
+
+  let run_once ?env cmd attrs =
+    let open Perf in
+    let attrs = List.map Perf.Attr.make attrs in
+    with_process ?env cmd attrs |> fun {return_value; stdout; stderr; data;} ->
+    let data = List.map (fun (k, v) ->
+        Topic.(Topic (k, Libperf)), `Int v) data in
+    Macroperf.Result.Execution.{ return_value; stdout; stderr; data; }
+
+  let run ?env ?(nb_iter=1) cmd evts =
+    run_n (fun () -> wrap (fun () -> run_once ?env cmd evts)) nb_iter
 end
 
 module Runner = struct
@@ -99,7 +131,7 @@ module Runner = struct
   type execs = {
     time: Topic.time list;
     gc: Topic.gc list;
-    libperf: int list;
+    libperf: Perf.Attr.kind list;
     perf: string list;
   }
 
@@ -130,15 +162,15 @@ module Runner = struct
     let run_execs { time; gc; libperf; perf; } =
       (match time with
         | [] -> return []
-        | t -> (Time_wrapper.(run ?env:b.env ~nb_iter b.cmd t) >|= fun r -> [r]))
+        | _ -> (Time_wrapper.(run ?env:b.env ~nb_iter b.cmd time)))
       >>= fun time_res ->
       (match libperf with
        | [] -> return []
-       | t -> return [])
+       | _ -> (Libperf_wrapper.(run ?env:b.env ~nb_iter b.cmd libperf)))
       >>= fun libperf_res ->
       (match perf with
        | [] -> return []
-       | t -> (Perf_wrapper.(run ?env:b.env ~evts:perf ~nb_iter b.cmd) >|= fun r -> [r]))
+       | _ -> (Perf_wrapper.(run ?env:b.env ~nb_iter b.cmd perf)))
       >>= fun perf_res ->
       return @@ time_res @ libperf_res @ perf_res
     in
@@ -146,9 +178,11 @@ module Runner = struct
     run_execs execs >|= fun execs ->
     Result.make ~context_id:"unknown" ~src:b ~execs ()
 
-
   let run ?nb_iter ?topics b =
-    try_lwt run_exn ?nb_iter ?topics b >|= fun r -> Some r
+    try
+      catch
+        (fun () -> run_exn ?nb_iter ?topics b >|= fun r -> Some r)
+        (fun _ -> return None)
     with _ -> return None
 
 end
