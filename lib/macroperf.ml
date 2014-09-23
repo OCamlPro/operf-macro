@@ -4,15 +4,38 @@ module Topic = struct
   type time = [ `Real | `User | `Sys ] with sexp
   type gc = [ `Alloc_major | `Alloc_minor | `Compactions ] with sexp
 
-  type t =
+  type _ kind =
     (* Time related *)
-    | Time of time
+    | Time : time kind
 
     (* GC related *)
-    | Gc of gc
+    | Gc : gc kind
 
-    (* PERF-STAT(1) related (linux only) *)
-    | Perf of string with sexp
+    (* Use the ocaml-perf binding to perf_event_open(2). *)
+    | Libperf : int kind (* Refer to ocaml-perf for numbers *)
+
+    (* Use the perf-stat(1) command (need the perf binary, linux
+       only) *)
+    | Perf : string kind
+
+  type t = Topic : 'a * 'a kind -> t
+
+  let sexp_of_t t =
+    let open Sexplib.Sexp in
+    match t with
+    | Topic (time, Time) -> List [Atom "Time"; sexp_of_time time]
+    | Topic (gc, Gc) -> List [Atom "Gc"; sexp_of_gc gc]
+    | Topic (libperf, Libperf) -> List [Atom "Libperf"; sexp_of_int libperf]
+    | Topic (perf, Perf) -> List [Atom "Perf"; sexp_of_string perf]
+
+  let t_of_sexp s =
+    let open Sexplib.Sexp in
+    match s with
+    | List [Atom "Time"; t] -> Topic (time_of_sexp t, Time)
+    | List [Atom "Gc"; t] -> Topic (gc_of_sexp t, Gc)
+    | List [Atom "Libperf"; t] -> Topic (int_of_sexp t, Libperf)
+    | List [Atom "Perf"; t] -> Topic (string_of_sexp t, Perf)
+    | _ -> invalid_arg "t_of_sexp"
 
   let compare = Pervasives.compare
 end

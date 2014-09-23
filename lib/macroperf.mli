@@ -2,15 +2,21 @@ module Topic : sig
   type time = [ `Real | `User | `Sys ]
   type gc = [ `Alloc_major | `Alloc_minor | `Compactions ]
 
-  type t =
+  type _ kind =
     (** Time related *)
-    | Time of time
+    | Time : time kind
 
     (** GC related *)
-    | Gc of gc
+    | Gc : gc kind
 
-    (** PERF-STAT(1) related (linux only) *)
-    | Perf of string
+    (** Use the ocaml-perf binding to perf_event_open(2). *)
+    | Libperf : int kind (** Refer to ocaml-perf for numbers *)
+
+    (** Use the perf-stat(1) command (need the perf binary, linux
+        only) *)
+    | Perf : string kind
+
+  type t =  Topic : 'a * 'a kind -> t
 end
 
 module Benchmark : sig

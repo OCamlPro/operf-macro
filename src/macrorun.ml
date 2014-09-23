@@ -89,12 +89,12 @@ let perf copts cmd evts bench_out =
   (* Separate events from the event list given in PERF format *)
   let rex = Re_pcre.regexp "," in
   let evts = Re_pcre.split ~rex evts in
-  let evts = List.map (fun e -> Topic.Perf e) evts in
+  let evts = List.map (fun e -> Topic.(Topic (e, Perf))) evts in
   make_bench_and_run copts cmd bench_out evts
 
 let time copts cmd bench_out =
   make_bench_and_run copts cmd bench_out
-    Topic.[Time `Real; Time `User; Time `Sys]
+    Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
 
 let run copts files =
   let th =

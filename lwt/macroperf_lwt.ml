@@ -48,8 +48,9 @@ module Perf_wrapper = struct
             stderr=""; (* Perf writes its result on stderr... *)
             data=(List.fold_left
                 (fun acc l -> match l with
-                   | [v;"";event; ] -> (Topic.Perf event, Result.Measure.of_string v)::acc
-                   | [v;"";event; _] -> (Topic.Perf event, Result.Measure.of_string  v)::acc
+                   | [v;"";event; ]
+                   | [v;"";event; _] ->
+                       (Topic.(Topic (event, Perf)), Result.Measure.of_string  v)::acc
                    | l ->
                        Lwt_log.ign_warning_f ~section
                          "Ignoring perf result line [%s]" (String.concat "," l);
@@ -75,9 +76,9 @@ module Time_wrapper = struct
       let t_end = Unix.gettimeofday () in
       let data = List.map
           (function
-            | `Real -> (Topic.(Time `Real), `Float (t_end -. t_start))
-            | `User -> (Topic.(Time `User), `Float rusage.Lwt_unix.ru_utime)
-            | `Sys  -> (Topic.(Time `Sys), `Float rusage.Lwt_unix.ru_stime))
+            | `Real -> (Topic.(Topic (`Real, Time)), `Float (t_end -. t_start))
+            | `User -> (Topic.(Topic (`User, Time)), `Float rusage.Lwt_unix.ru_utime)
+            | `Sys  -> (Topic.(Topic (`Sys, Time)), `Float rusage.Lwt_unix.ru_stime))
           times in
       Lwt_io.read p#stdout >>= fun stdout ->
       Lwt_io.read p#stderr >>= fun stderr ->
@@ -95,6 +96,13 @@ end
 module Runner = struct
   exception Not_implemented
 
+  type execs = {
+    time: Topic.time list;
+    gc: Topic.gc list;
+    libperf: int list;
+    perf: string list;
+  }
+
   let run_exn ?nb_iter ?topics b =
     let open Benchmark in
 
@@ -108,37 +116,34 @@ module Runner = struct
 
     (* Transform individial topics into a list of executions *)
     let execs =
-      let t,g,p = List.fold_left
-          (fun (t,g,p) -> function
-             | Topic.Time e -> (e::t,g,p)
-             | Topic.Gc   e -> (t,e::g,p)
-             | Topic.Perf e -> (t,g,e::p)
-          )
-          ([],[],[]) topics in
-      let t = if t = [] then None else Some (`Time t) in
-      let g = if g = [] then None else Some (`Gc g) in
-      let p = if p = [] then None else Some (`Perf p) in
+      let open Topic in
+      List.fold_left
+        (fun a -> function
+           | Topic (t, Time) -> { a with time=t::a.time }
+           | Topic (t, Gc) -> { a with gc=t::a.gc }
+           | Topic (t, Libperf) -> { a with libperf=t::a.libperf }
+           | Topic (t, Perf) -> { a with perf=t::a.perf }
+        )
+        {time=[]; gc=[]; libperf=[]; perf=[];}
+        topics in
 
-      List.fold_left (fun a -> function
-          | Some e -> e::a
-          | None -> a
-        ) [] [t;g;p]
-
+    let run_execs { time; gc; libperf; perf; } =
+      (match time with
+        | [] -> return []
+        | t -> (Time_wrapper.(run ?env:b.env ~nb_iter b.cmd t) >|= fun r -> [r]))
+      >>= fun time_res ->
+      (match libperf with
+       | [] -> return []
+       | t -> return [])
+      >>= fun libperf_res ->
+      (match perf with
+       | [] -> return []
+       | t -> (Perf_wrapper.(run ?env:b.env ~evts:perf ~nb_iter b.cmd) >|= fun r -> [r]))
+      >>= fun perf_res ->
+      return @@ time_res @ libperf_res @ perf_res
     in
 
-    (* Benchmarks are run sequentially here *)
-    Lwt_list.fold_left_s
-      (fun acc m -> match m with
-         | `Time times ->
-             Time_wrapper.(run ?env:b.env ~nb_iter b.cmd times >|= fun res -> res :: acc)
-
-         | `Perf evts ->
-             Perf_wrapper.(run ?env:b.env ~evts ~nb_iter b.cmd >|= fun res -> res :: acc)
-
-         | _ -> raise_lwt Not_implemented
-      )
-      [] execs
-    >|= fun execs ->
+    run_execs execs >|= fun execs ->
     Result.make ~context_id:"unknown" ~src:b ~execs ()
 
 
