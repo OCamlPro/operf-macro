@@ -113,22 +113,86 @@ let time copts cmd bench_out =
   make_bench_and_run copts cmd bench_out
     Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
 
-let run copts files =
+let run copts selectors =
+  let (/) = Filename.concat in
+
+  let home = Unix.getenv "HOME" in
+  let opamroot = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam" in
+  let config = OpamFile.Config.read Filename.(concat opamroot "config" |>
+                                              OpamFilename.of_string) in
+  let switch = OpamFile.Config.switch config |> OpamSwitch.to_string in
+  let share = opamroot / switch / "share" in
+
+  let kind_of_file filename =
+    let open Unix in
+    try
+      let st = Unix.stat filename in
+      match st.st_kind with
+      | S_REG -> `File
+      | S_DIR -> `Directory
+      | _     -> `Other_kind
+    with Unix_error (ENOENT, _, _) -> `Noent
+  in
+
+  let ls dirname =
+    let dh = Unix.opendir dirname in
+    let rec loop acc =
+      match Unix.readdir dh with
+      | name -> loop (name::acc)
+      | exception End_of_file -> acc
+    in loop []
+  in
+
+  (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
+  let selectors = match selectors with
+    | [] ->
+        let names = ls share in
+        let names = List.map (fun n -> share / n) names in
+        List.filter (fun n -> kind_of_file n = `Directory)
+          names
+    | selectors -> selectors
+  in
   let th =
-    let run_inner file =
-      let bench_str =
-        let ic = open_in file in
-        try
-          let s =
-            really_input_string ic @@ in_channel_length ic in
-          close_in ic; s
-        with exn ->
-          close_in ic; raise exn
-      in
-      bench_str |> Benchmark.of_string |> Runner.run_exn
+    (* If selector is a file, run the benchmark in the file, if it is
+       a directory, run all benchmarks in the directory *)
+    let rec run_inner selector =
+      let run_bench filename =
+        let bench_str =
+          let ic = open_in filename in
+          try
+            let s =
+              really_input_string ic @@ in_channel_length ic in
+            close_in ic; s
+          with exn ->
+            close_in ic; raise exn
+        in
+        bench_str |> Benchmark.of_string |> Runner.run_exn in
+      match kind_of_file selector with
+      | `Noent ->
+          (* Not found, but can be an OPAM package name... *)
+          (match kind_of_file @@ share / selector with
+          | `Noent | `File | `Other_kind -> return []
+          | `Directory -> run_inner @@ share / selector)
+      | `Other_kind ->
+          return [] (* Do nothing if not file or directory *)
+      | `Directory ->
+          (* Get a list of .bench files in the directory and run them *)
+          let names = ls selector in
+          let names =
+            List.filter
+              (fun n ->
+                 let len = String.length n in
+                 len > 6 &&
+                 kind_of_file Filename.(concat selector n) = `File &&
+                 String.sub n (len-6) 6 = ".bench")
+              names
+          in
+          Lwt_list.map_s run_bench @@ List.map (fun n -> selector / n) names
+      | `File ->
+          Lwt_list.map_s run_bench [selector]
     in
-    Lwt_list.map_s run_inner files >|= fun res ->
-    List.iter (write_res_copts copts) res
+    Lwt_list.map_s run_inner selectors >|= fun res ->
+    List.iter (write_res_copts copts) @@ List.flatten res
   in
   Lwt_main.run th
 
@@ -209,7 +273,7 @@ let perf_cmd =
     Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
   in
   let evts =
-    let doc = "Equivalent to the -e argument of PERF-STAT(1)." in
+    let doc = "Same as the -e argument of PERF-STAT(1)." in
     Arg.(value & opt string "" & info ["e"; "event"] ~docv:"perf-events" ~doc) in
 
   let doc = "Macrobenchmark using PERF-STAT(1) (Linux only)." in
@@ -229,13 +293,13 @@ let libperf_cmd =
     Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
   in
   let evts =
-    let doc = "Equivalent to the -e argument of PERF-STAT(1)." in
+    let doc = "Same as the -e argument of PERF-STAT(1)." in
     Arg.(value & opt string "" & info ["e"; "event"] ~docv:"perf-events" ~doc) in
 
-  let doc = "Macrobenchmark using PERF-STAT(1) (Linux only)." in
+  let doc = "Macrobenchmark using the ocaml-perf library." in
   let man = [
     `S "DESCRIPTION";
-    `P "Wrapper to the PERF-STAT(1) command."] @ help_secs
+    `P "See <http://github.com/vbmithr/ocaml-perf>."] @ help_secs
   in
   Term.(pure libperf $ copts_t $ cmd $ evts $ bench_out),
   Term.info "libperf" ~doc ~sdocs:copts_sect ~man
@@ -257,16 +321,19 @@ let time_cmd =
   Term.info "time" ~doc ~sdocs:copts_sect ~man
 
 let run_cmd =
-  let filename =
-    let doc = "File containing a benchmark description." in
-    Arg.(non_empty & pos_all file [] & info [] ~docv:"file" ~doc)
+  let selector =
+    let doc = "If the argument correspond to a filename, the benchmark \
+is executed from this file, otherwise \
+the argument is treated as an OPAM package. \
+If missing, all OPAM benchmarks installed in the current switch are executed." in
+    Arg.(value & pos_all string [] & info [] ~docv:"<file|package>" ~doc)
   in
   let doc = "Run macrobenchmarks from files." in
   let man = [
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ filename),
+  Term.(pure run $ copts_t $ selector),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 let cmds = [help_cmd; run_cmd; perf_cmd; libperf_cmd; time_cmd]

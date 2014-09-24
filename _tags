@@ -4,5 +4,5 @@
 <src> : include
 <lib/*.{ml,mli}> : syntax(camlp4o), package(sexplib.syntax), package(perf)
 <lwt/*.{ml,mli}> : package(lwt), package(re.pcre), package(perf)
-<src/*.{ml,mli}> : package(lwt), package(re.pcre), package(cmdliner), package(sexplib), package(xdg-basedir), package(perf)
-<src/*.{byte,native}>: package(cmdliner), package(re.pcre), package(lwt.unix), package(sexplib), package(xdg-basedir), package(perf)
+<src/*.{ml,mli}> : package(lwt), package(re.pcre), package(cmdliner), package(sexplib), package(xdg-basedir), package(perf), package(opam-lib)
+<src/*.{byte,native}>: package(cmdliner), package(re.pcre), package(lwt.unix), package(sexplib), package(xdg-basedir), package(perf), package(opam-lib)
