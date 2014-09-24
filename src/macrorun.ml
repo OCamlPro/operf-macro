@@ -113,14 +113,17 @@ let time copts cmd bench_out =
   make_bench_and_run copts cmd bench_out
     Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
 
-let run copts selectors =
+let run copts switch selectors =
   let (/) = Filename.concat in
 
   let home = Unix.getenv "HOME" in
   let opamroot = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam" in
   let config = OpamFile.Config.read Filename.(concat opamroot "config" |>
                                               OpamFilename.of_string) in
-  let switch = OpamFile.Config.switch config |> OpamSwitch.to_string in
+  let switch = match switch with
+    | None -> OpamFile.Config.switch config |> OpamSwitch.to_string
+    | Some s -> s
+  in
   let share = opamroot / switch / "share" in
 
   let kind_of_file filename =
@@ -171,9 +174,12 @@ let run copts selectors =
       | `Noent ->
           (* Not found, but can be an OPAM package name... *)
           (match kind_of_file @@ share / selector with
-          | `Noent | `File | `Other_kind -> return []
+          | `Noent | `File | `Other_kind ->
+              Printf.eprintf "Warning: %s is not an OPAM package.\n" selector;
+              return []
           | `Directory -> run_inner @@ share / selector)
       | `Other_kind ->
+          Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector;
           return [] (* Do nothing if not file or directory *)
       | `Directory ->
           (* Get a list of .bench files in the directory and run them *)
@@ -192,7 +198,8 @@ let run copts selectors =
           Lwt_list.map_s run_bench [selector]
     in
     Lwt_list.map_s run_inner selectors >|= fun res ->
-    List.iter (write_res_copts copts) @@ List.flatten res
+    let res = List.flatten res in
+    List.iter (write_res_copts copts) res;
   in
   Lwt_main.run th
 
@@ -321,6 +328,9 @@ let time_cmd =
   Term.info "time" ~doc ~sdocs:copts_sect ~man
 
 let run_cmd =
+  let switch =
+    let doc = "Use the provided OPAM switch instead of using OPAM's current one." in
+    Arg.(value & opt (some string) None & info ["switch"] ~docv:"OPAM switch name" ~doc) in
   let selector =
     let doc = "If the argument correspond to a filename, the benchmark \
 is executed from this file, otherwise \
@@ -333,7 +343,7 @@ If missing, all OPAM benchmarks installed in the current switch are executed." i
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ selector),
+  Term.(pure run $ copts_t $ switch $ selector),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 let cmds = [help_cmd; run_cmd; perf_cmd; libperf_cmd; time_cmd]
