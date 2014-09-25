@@ -40,6 +40,54 @@ module Topic = struct
   let compare = Pervasives.compare
 end
 
+module Measure = struct
+  type t = [ `Int of int64 | `Float of float | `Error ] with sexp
+  let of_string s =
+    try `Int (Int64.of_string s) with _ ->
+      try `Float (float_of_string s) with _ ->
+        `Error
+end
+
+module Execution = struct
+  type process_status = Unix.process_status
+
+  let sexp_of_process_status ps =
+    let open Unix in
+    let open Sexplib.Sexp in
+    match ps with
+    | WEXITED n -> List [Atom "WEXITED"; sexp_of_int n]
+    | WSIGNALED n -> List [Atom "WSIGNALED"; sexp_of_int n]
+    | WSTOPPED n -> List [Atom "WSTOPPED"; sexp_of_int n]
+
+  let process_status_of_sexp s =
+    let open Unix in
+    let open Sexplib.Sexp in
+    match s with
+    | List [Atom "WEXITED"; n] -> WEXITED (int_of_sexp n)
+    | List [Atom "WSIGNALED"; n] -> WSIGNALED (int_of_sexp n)
+    | List [Atom "WSTOPPED"; n] -> WSTOPPED (int_of_sexp n)
+    | _ -> invalid_arg "process_status_of_sexp"
+
+  type exec = {
+    process_status: process_status;
+    stdout: string;
+    stderr: string;
+    data: (Topic.t * Measure.t) list;
+  } with sexp
+
+  type t = [ `Ok of exec | `Timeout | `Error of string ]
+  with sexp
+  (** Type representing the execution of a benchmark. *)
+
+  let error exn = `Error Printexc.(to_string exn)
+
+  let strip chan t = match t, chan with
+    | `Timeout, _
+    | `Error _, _ -> t
+    | `Ok e, `Stdout -> `Ok { e with stdout="" }
+    | `Ok e, `Stderr -> `Ok { e with stderr="" }
+end
+
 module Benchmark = struct
 
   type speed = [`Fast | `Slow | `Slower] with sexp
@@ -51,42 +99,17 @@ module Benchmark = struct
     env: string list option;
     nb_iter: int;
     speed: speed;
-    measures: Topic.t list;
+    topics: Topic.t list;
   } with sexp
 
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~name ?descr ~cmd ?env ?(nb_iter=1)  ~speed ~measures () =
-    { name; descr; cmd; env; nb_iter; speed; measures; }
+  let make ~name ?descr ~cmd ?env ?(nb_iter=1)  ~speed ~topics () =
+    { name; descr; cmd; env; nb_iter; speed; topics; }
 end
 
 module Result = struct
-  module Measure = struct
-    type t = [ `Int of int64 | `Float of float | `Error ] with sexp
-    let of_string s =
-      try `Int (Int64.of_string s) with _ ->
-        try `Float (float_of_string s) with _ ->
-          `Error
-  end
-
-  module Execution = struct
-    type t = {
-      return_value: int;
-      stdout: string;
-      stderr: string;
-      data: (Topic.t * Measure.t) list;
-    } with sexp
-    (** Type representing the execution of a benchmark. *)
-
-    let make ~return_value ~stdout ~stderr ~data =
-      { return_value; stdout; stderr; data; }
-
-    let strip chan t = match chan with
-      | `Stdout -> { t with stdout="" }
-      | `Stderr -> { t with stderr="" }
-  end
-
   type t = {
     src: Benchmark.t;
     context_id: string;
@@ -97,6 +120,11 @@ module Result = struct
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
   let make ~src ?(context_id="") ~execs () =
+    let execs = List.map (function
+        | `Ok r -> `Ok r
+        | `Timeout -> `Timeout
+        | `Exn exn ->`Error (Printexc.to_string exn)
+      ) execs in
     { src; context_id; execs; }
 
   let strip chan t = match chan with

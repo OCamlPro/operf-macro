@@ -19,6 +19,33 @@ module Topic : sig
   type t =  Topic : 'a * 'a kind -> t
 end
 
+module Measure : sig
+  type t = [ `Int of int64 | `Float of float | `Error ]
+  (** Type of a measure. This is to discriminate between discrete
+      events (i.e. cpu cycles), continuous events (i.e. time) and
+      errors (the measurement operation failed). *)
+
+  val of_string : string -> t
+  (** [of string msr_string] is the measure resulting from the
+      cast of [msr_string]. *)
+end
+
+module Execution : sig
+  type exec = {
+    process_status: Unix.process_status;
+    stdout: string;
+    stderr: string;
+    data: (Topic.t * Measure.t) list;
+  }
+  (** Type representing the successful execution of a benchmark. *)
+
+  type t = [ `Ok of exec | `Timeout | `Error of string ]
+  (** Type representing the execution of a benchmark. *)
+
+  val error : exn -> t
+  (** [error exn] is `Error Printexc.(to_string exn) *)
+end
+
 module Benchmark : sig
   type speed = [`Fast | `Slow | `Slower]
 
@@ -38,7 +65,7 @@ module Benchmark : sig
     (** Number of iterations *)
     speed: speed;
     (** Use to characterize the execution time of a benchmark *)
-    measures: Topic.t list;
+    topics: Topic.t list;
     (** Set of quantities to measure *)
   }
 
@@ -49,7 +76,7 @@ module Benchmark : sig
     ?env:string list ->
     ?nb_iter:int ->
     speed:speed ->
-    measures:Topic.t list ->
+    topics:Topic.t list ->
     unit ->
     t
 
@@ -58,34 +85,6 @@ module Benchmark : sig
 end
 
 module Result : sig
-  module Measure : sig
-    type t = [ `Int of int64 | `Float of float | `Error ]
-    (** Type of a measure. This is to discriminate between discrete
-        events (i.e. cpu cycles), continuous events (i.e. time) and
-        errors (the measurement operation failed). *)
-
-    val of_string : string -> t
-    (** [of string msr_string] is the measure resulting from the
-        cast of [msr_string]. *)
-  end
-
-  module Execution : sig
-    type t = {
-      return_value: int;
-      stdout: string;
-      stderr: string;
-      data: (Topic.t * Measure.t) list;
-    }
-    (** Type representing the execution of a benchmark. *)
-
-    val make : return_value:int -> stdout:string -> stderr:string ->
-      data:(Topic.t * Measure.t) list -> t
-
-    val strip : [`Stdout | `Stderr] -> t -> t
-    (** [strip t chan] is an execution where the output of the program
-        in [chan] has been discarded. *)
-  end
-
   type t = {
     src: Benchmark.t;
     (** The benchmark used to produce this result *)
@@ -94,9 +93,9 @@ module Result : sig
         benchmark executable: compiler used, build options of this
         compiler, etc. *)
     execs: Execution.t list;
-    (** This contain the list of executions, containing measurements
-        plus additional useful information about the individual
-        runs. *)
+    (** This contain the list of execution results, containing
+        measurements plus additional useful information about the
+        individual runs if the execution was possible. *)
   }
   (** Type of a result. This can correspond to several runs of the
       same benchmark,if requested measures cannot be performed in one
@@ -108,7 +107,7 @@ module Result : sig
   val make :
     src:Benchmark.t ->
     ?context_id:string ->
-    execs:Execution.t list -> unit ->
+    execs:[`Ok of Execution.exec | `Timeout | `Exn of exn] list -> unit ->
     t
 
   val strip : [`Stdout | `Stderr] -> t -> t

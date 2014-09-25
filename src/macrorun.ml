@@ -1,5 +1,3 @@
-open Lwt
-
 open Macroperf
 open Macroperf_lwt
 
@@ -28,9 +26,9 @@ let write_res ?(strip=[]) ?file res =
 
   (* Write the result into stdout, or <file> if specified *)
   (match file with
-  | None -> Printf.printf "%s\n" res_string;
-  | Some fn ->
-      with_oc_safe (fun oc -> Printf.fprintf oc "%s\n" res_string) fn);
+   | None -> Printf.printf "%s\n" res_string;
+   | Some fn ->
+       with_oc_safe (fun oc -> Printf.fprintf oc "%s\n" res_string) fn);
 
   (* Write the result in cache too if cache exists *)
   let rex = Re_pcre.regexp " " in
@@ -56,36 +54,34 @@ let write_res_copts copts res = match copts with
   | {output_file; ignore_out } -> write_res ~strip:ignore_out ~file:output_file res
 
 (* Generic function to create and run a benchmark *)
-let make_bench_and_run copts cmd bench_out measures =
+let make_bench_and_run copts cmd bench_out topics =
   (* Build the name of the benchmark from the command line, but
      replace " " by "_" *)
   let name = String.concat " " cmd in
   let name_uscore = String.concat "_" cmd in
-  let th =
-    let bench =
+  let bench =
     Benchmark.make
-                 ~name:name_uscore
-                 ~descr:("Benchmark of ``" ^ name ^
-                         "'' avg. over " ^ string_of_int copts.nb_iter ^
-                         " iterations.")
-                 ~cmd
-                 ~nb_iter:copts.nb_iter
-                 ~speed:`Fast
-                 ~measures ()
-    in
-    Runner.run_exn bench >|= fun res ->
+      ~name:name_uscore
+      ~descr:("Benchmark of ``" ^ name ^
+              "'' avg. over " ^ string_of_int copts.nb_iter ^
+              " iterations.")
+      ~cmd
+      ~nb_iter:copts.nb_iter
+      ~speed:`Fast
+      ~topics ()
+  in
+  let res = Runner.run_exn bench in
 
-    (* Write the result in the file specified by -o, or stdout and
-       maybe in cache as well *)
-    write_res_copts copts res;
+  (* Write the result in the file specified by -o, or stdout and
+     maybe in cache as well *)
+  write_res_copts copts res;
 
-    match bench_out with
-    | None -> ()
-    | Some benchfile ->
-        let oc = open_out benchfile in
-        Printf.fprintf oc "%s" (Benchmark.to_string bench);
-        close_out oc
-  in Lwt_main.run th
+  match bench_out with
+  | None -> ()
+  | Some benchfile ->
+      let oc = open_out benchfile in
+      Printf.fprintf oc "%s" (Benchmark.to_string bench);
+      close_out oc
 
 let perf copts cmd evts bench_out =
   (* Separate events from the event list given in PERF format *)
@@ -155,53 +151,50 @@ let run copts switch selectors =
           names
     | selectors -> selectors
   in
-  let th =
-    (* If selector is a file, run the benchmark in the file, if it is
-       a directory, run all benchmarks in the directory *)
-    let rec run_inner selector =
-      let run_bench filename =
-        let bench_str =
-          let ic = open_in filename in
-          try
-            let s =
-              really_input_string ic @@ in_channel_length ic in
-            close_in ic; s
-          with exn ->
-            close_in ic; raise exn
+  (* If selector is a file, run the benchmark in the file, if it is
+     a directory, run all benchmarks in the directory *)
+  let rec run_inner selector =
+    let run_bench filename =
+      let bench_str =
+        let ic = open_in filename in
+        try
+          let s =
+            really_input_string ic @@ in_channel_length ic in
+          close_in ic; s
+        with exn ->
+          close_in ic; raise exn
+      in
+      bench_str |> Benchmark.of_string |> Runner.run_exn in
+    match kind_of_file selector with
+    | `Noent ->
+        (* Not found, but can be an OPAM package name... *)
+        (match kind_of_file @@ share / selector with
+         | `Noent | `File | `Other_kind ->
+             Printf.eprintf "Warning: %s is not an OPAM package.\n" selector;
+             []
+         | `Directory -> run_inner @@ share / selector)
+    | `Other_kind ->
+        Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector;
+        [] (* Do nothing if not file or directory *)
+    | `Directory ->
+        (* Get a list of .bench files in the directory and run them *)
+        let names = ls selector in
+        let names =
+          List.filter
+            (fun n ->
+               let len = String.length n in
+               len > 6 &&
+               kind_of_file Filename.(concat selector n) = `File &&
+               String.sub n (len-6) 6 = ".bench")
+            names
         in
-        bench_str |> Benchmark.of_string |> Runner.run_exn in
-      match kind_of_file selector with
-      | `Noent ->
-          (* Not found, but can be an OPAM package name... *)
-          (match kind_of_file @@ share / selector with
-          | `Noent | `File | `Other_kind ->
-              Printf.eprintf "Warning: %s is not an OPAM package.\n" selector;
-              return []
-          | `Directory -> run_inner @@ share / selector)
-      | `Other_kind ->
-          Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector;
-          return [] (* Do nothing if not file or directory *)
-      | `Directory ->
-          (* Get a list of .bench files in the directory and run them *)
-          let names = ls selector in
-          let names =
-            List.filter
-              (fun n ->
-                 let len = String.length n in
-                 len > 6 &&
-                 kind_of_file Filename.(concat selector n) = `File &&
-                 String.sub n (len-6) 6 = ".bench")
-              names
-          in
-          Lwt_list.map_s run_bench @@ List.map (fun n -> selector / n) names
-      | `File ->
-          Lwt_list.map_s run_bench [selector]
-    in
-    Lwt_list.map_s run_inner selectors >|= fun res ->
-    let res = List.flatten res in
-    List.iter (write_res_copts copts) res;
+        List.map run_bench @@ List.map (fun n -> selector / n) names
+    | `File ->
+        List.map run_bench [selector]
   in
-  Lwt_main.run th
+  let res = List.map run_inner selectors in
+  let res = List.flatten res in
+  List.iter (write_res_copts copts) res
 
 let help copts man_format cmds topic = match topic with
   | None -> `Help (`Pager, None) (* help about the program. *)
@@ -222,11 +215,11 @@ open Cmdliner
 
 let copts_sect = "COMMON OPTIONS"
 let help_secs = [
- `S copts_sect;
- `P "These options are common to all commands.";
- `S "MORE HELP";
- `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
- `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
+  `S copts_sect;
+  `P "These options are common to all commands.";
+  `S "MORE HELP";
+  `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
+  `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
 let copts output_file nb_iter ignore_out =
   { output_file; nb_iter;
@@ -333,9 +326,9 @@ let run_cmd =
     Arg.(value & opt (some string) None & info ["switch"] ~docv:"OPAM switch name" ~doc) in
   let selector =
     let doc = "If the argument correspond to a filename, the benchmark \
-is executed from this file, otherwise \
-the argument is treated as an OPAM package. \
-If missing, all OPAM benchmarks installed in the current switch are executed." in
+               is executed from this file, otherwise \
+               the argument is treated as an OPAM package. \
+               If missing, all OPAM benchmarks installed in the current switch are executed." in
     Arg.(value & pos_all string [] & info [] ~docv:"<file|package>" ~doc)
   in
   let doc = "Run macrobenchmarks from files." in
