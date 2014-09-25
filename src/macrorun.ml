@@ -1,5 +1,4 @@
 open Macroperf
-open Macroperf_lwt
 
 type copts = {
   output_file: string;

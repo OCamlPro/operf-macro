@@ -65,6 +65,8 @@ module Benchmark : sig
     (** Number of iterations *)
     speed: speed;
     (** Use to characterize the execution time of a benchmark *)
+    timeout: int;
+    (** Maximum time per execution, in seconds. *)
     topics: Topic.t list;
     (** Set of quantities to measure *)
   }
@@ -76,6 +78,7 @@ module Benchmark : sig
     ?env:string list ->
     ?nb_iter:int ->
     speed:speed ->
+    ?timeout:int ->
     topics:Topic.t list ->
     unit ->
     t
@@ -113,4 +116,9 @@ module Result : sig
   val strip : [`Stdout | `Stderr] -> t -> t
   (** [strip t chan is a result where the output of the program
       executions in [chan] have been disabled. *)
+end
+
+module Runner : sig
+  val run_exn : Benchmark.t -> Result.t
+  val run     : Benchmark.t -> Result.t option
 end
