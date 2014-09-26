@@ -1,3 +1,34 @@
+module Util : sig
+  module File : sig
+    val string_of_ic : in_channel -> string
+    val lines_of_ic : in_channel -> string list
+    val string_of_file : string -> string
+    val lines_of_file : string -> string list
+  end
+
+  module Cmd : sig
+    val stdout_of_cmd : string -> Unix.process_status * string
+  end
+
+  module Opam : sig
+    val (/) : string -> string -> string
+    (** Alias to Filename.concat *)
+
+    val home : string
+    (** $HOME *)
+
+    val root : string
+    (** [root] is either $OPAMROOT or $HOME/.opam if unset *)
+
+    val switch : string
+    (** [switch] is the name of the current OPAM switch. *)
+
+    val share : ?switch:string -> unit -> string
+    (** [share] is the name of the share folder under the current
+        OPAM switch. *)
+  end
+end
+
 module Topic : sig
   type time = [ `Real | `User | `Sys ]
   type gc = [ `Alloc_major | `Alloc_minor | `Compactions ]

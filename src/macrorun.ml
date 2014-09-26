@@ -109,17 +109,7 @@ let time copts cmd bench_out =
     Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
 
 let run copts switch selectors =
-  let (/) = Filename.concat in
-
-  let home = Unix.getenv "HOME" in
-  let opamroot = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam" in
-  let config = OpamFile.Config.read Filename.(concat opamroot "config" |>
-                                              OpamFilename.of_string) in
-  let switch = match switch with
-    | None -> OpamFile.Config.switch config |> OpamSwitch.to_string
-    | Some s -> s
-  in
-  let share = opamroot / switch / "share" in
+  let share = Util.Opam.share ?switch () in
 
   let kind_of_file filename =
     let open Unix in
@@ -145,7 +135,7 @@ let run copts switch selectors =
   let selectors = match selectors with
     | [] ->
         let names = ls share in
-        let names = List.map (fun n -> share / n) names in
+        let names = List.map (fun n -> Filename.concat share n) names in
         List.filter (fun n -> kind_of_file n = `Directory)
           names
     | selectors -> selectors
@@ -154,24 +144,16 @@ let run copts switch selectors =
      a directory, run all benchmarks in the directory *)
   let rec run_inner selector =
     let run_bench filename =
-      let bench_str =
-        let ic = open_in filename in
-        try
-          let s =
-            really_input_string ic @@ in_channel_length ic in
-          close_in ic; s
-        with exn ->
-          close_in ic; raise exn
-      in
+      let bench_str = Util.File.string_of_file filename in
       bench_str |> Benchmark.of_string |> Runner.run_exn in
     match kind_of_file selector with
     | `Noent ->
         (* Not found, but can be an OPAM package name... *)
-        (match kind_of_file @@ share / selector with
+        (match kind_of_file Filename.(concat share selector) with
          | `Noent | `File | `Other_kind ->
              Printf.eprintf "Warning: %s is not an OPAM package.\n" selector;
              []
-         | `Directory -> run_inner @@ share / selector)
+         | `Directory -> run_inner Filename.(concat share selector))
     | `Other_kind ->
         Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector;
         [] (* Do nothing if not file or directory *)
@@ -187,7 +169,7 @@ let run copts switch selectors =
                String.sub n (len-6) 6 = ".bench")
             names
         in
-        List.map run_bench @@ List.map (fun n -> selector / n) names
+        List.map run_bench @@ List.map (fun n -> Filename.concat selector n) names
     | `File ->
         List.map run_bench [selector]
   in

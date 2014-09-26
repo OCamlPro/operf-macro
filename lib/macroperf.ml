@@ -1,5 +1,65 @@
 open Sexplib.Std
 
+module Util = struct
+  module FS = struct
+    let (/) = Filename.concat
+    let home = Unix.getenv "HOME"
+  end
+
+  module File = struct
+    let string_of_ic ic = really_input_string ic @@ in_channel_length ic
+
+    let lines_of_ic ic =
+      let rec get_line acc = match input_line ic with
+        | line -> get_line (line::acc)
+        | exception End_of_file -> acc
+      in get_line []
+
+    let string_of_file filename =
+      let ic = open_in filename in
+      try
+        let res = string_of_ic ic in close_in ic; res
+      with exn ->
+        close_in ic; raise exn
+
+    let lines_of_file filename =
+      let ic = open_in filename in
+      try
+        let res = lines_of_ic ic in close_in ic; res
+      with exn ->
+        close_in ic; raise exn
+
+    let write_string_to_file filename str =
+      let oc = open_out filename in
+      try
+        Printf.fprintf oc "%s" str;
+        close_out oc
+      with exn ->
+        close_out oc; raise exn
+  end
+
+  module Cmd = struct
+    let stdout_of_cmd cmd_string =
+    let ic = Unix.open_process_in cmd_string in
+    try
+      let res = File.string_of_ic ic in Unix.close_process_in ic, res
+    with exn ->
+      let _ = Unix.close_process_in ic in raise exn
+  end
+
+  module Opam = struct
+    include FS
+    let root = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam"
+    let config = OpamFile.Config.read
+        Filename.(concat root "config" |> OpamFilename.of_string)
+    let switch = OpamFile.Config.switch config |> OpamSwitch.to_string
+    let swtch = switch (* hack *)
+    let share ?switch () = match switch with
+      | None -> root / swtch / "share"
+      | Some s -> root / s / "share"
+  end
+end
+
 module Topic = struct
   type time = [ `Real | `User | `Sys ] with sexp
   type gc = [ `Alloc_major | `Alloc_minor | `Compactions ] with sexp
@@ -136,34 +196,7 @@ module Result = struct
 end
 
 module Process = struct
-  let string_of_ic ic = really_input_string ic @@ in_channel_length ic
 
-  let lines_of_ic ic =
-    let rec get_line acc = match input_line ic with
-      | line -> get_line (line::acc)
-      | exception End_of_file -> acc
-    in get_line []
-
-  let string_of_file filename =
-    let ic = open_in filename in
-    try
-      let res = string_of_ic ic in close_in ic; res
-    with exn ->
-      close_in ic; raise exn
-
-  let lines_of_file filename =
-    let ic = open_in filename in
-    try
-      let res = lines_of_ic ic in close_in ic; res
-    with exn ->
-      close_in ic; raise exn
-
-  let stdout_of_cmd cmd_string =
-    let ic = Unix.open_process_in cmd_string in
-    try
-      let res = string_of_ic ic in Unix.close_process_in ic, res
-    with exn ->
-      let _ = Unix.close_process_in ic in raise exn
 
   type 'a process_ops = {
     new_f: unit -> 'a;
@@ -173,12 +206,12 @@ module Process = struct
   }
 
   let with_process_exn ?env ?timeout cmd p_ops =
-    let tmp_stdout_name = Filename.temp_file "ocaml-perf" "stdout" in
-    let tmp_stderr_name = Filename.temp_file "ocaml-perf" "stderr" in
+    let stdout_filename = "stdout" in
+    let stderr_filename = "stderr" in
     let tmp_stdout =
-      Unix.(openfile tmp_stdout_name [O_WRONLY; O_CREAT; O_TRUNC] 0o600) in
+      Unix.(openfile stdout_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o600) in
     let tmp_stderr =
-      Unix.(openfile tmp_stderr_name [O_WRONLY; O_CREAT; O_TRUNC] 0o600) in
+      Unix.(openfile stderr_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o600) in
     let state = p_ops.new_f () in
     p_ops.start_f state;
     match Unix.fork () with
@@ -200,16 +233,12 @@ module Process = struct
         let _, process_status = Unix.waitpid [] n in
         p_ops.stop_f state;
         Unix.(close tmp_stdout; close tmp_stderr);
-        let res =
-          Execution.{
-            process_status;
-            stdout = string_of_file tmp_stdout_name;
-            stderr = string_of_file tmp_stderr_name;
-            data = p_ops.state_f state;
-          }
-        in
-        Unix.(unlink tmp_stdout_name; unlink tmp_stderr_name);
-        res
+        Execution.{
+          process_status;
+          stdout = Util.File.string_of_file stdout_filename;
+          stderr = Util.File.string_of_file stderr_filename;
+          data = p_ops.state_f state;
+        }
 
   let with_process ?env ?timeout cmd p_ops =
     try `Ok (with_process_exn ?env ?timeout cmd p_ops)
@@ -239,8 +268,9 @@ module Perf_wrapper = struct
     let cmd_string = String.concat " " cmd in
     let p_stdout, p_stdin, p_stderr = Unix.open_process_full cmd_string env in
     try
-      let stdout_string = string_of_ic p_stdout in
-      let stderr_lines = lines_of_ic p_stderr in
+      let stdout_string = Util.File.string_of_ic p_stdout in
+      Util.File.write_string_to_file "stdout" stdout_string;
+      let stderr_lines = Util.File.lines_of_ic p_stderr in
       (* Setup an alarm that will make Unix.close_process_full raise
          EINTR if its process is not terminated by then *)
       let (_:int) = match timeout with None -> 0 | Some t -> Unix.alarm t in
@@ -298,7 +328,8 @@ module Libperf_wrapper = struct
     let open Perf in
     let attrs = List.map Perf.Attr.make attrs in
     (* /!\ Perf.with_process <> Process.with_process, but similar /!\ *)
-    Perf.with_process ?env ?timeout cmd attrs |> function
+    Perf.with_process
+      ?env ?timeout ~stdout:"stdout" ~stderr:"stderr" cmd attrs |> function
     | `Ok {process_status; stdout; stderr; data;} ->
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
@@ -320,6 +351,13 @@ module Runner = struct
 
   let run_exn b =
     let open Benchmark in
+
+    (* We run benchmarks in a temporary directory that we create now. *)
+    let temp_dir = Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) in
+    (try
+      Unix.mkdir Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) 0o600
+     with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+    Unix.chdir temp_dir;
 
     (* Transform individial topics into a list of executions *)
     let execs =
@@ -350,7 +388,7 @@ module Runner = struct
     in
 
     let execs = run_execs execs b in
-    Result.make ~context_id:"unknown" ~src:b ~execs ()
+    Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
 
   let run b =
     try Some (run_exn b) with _ -> None
