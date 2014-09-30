@@ -148,7 +148,11 @@ let run copts switch selectors =
   let rec run_inner selector =
     let run_bench filename =
       let bench_str = Util.File.string_of_file filename in
-      bench_str |> Benchmark.of_string |> Runner.run_exn in
+      let b = Benchmark.of_string bench_str in
+      Printf.printf "Running benchmark %s...%!" b.Benchmark.name;
+      let res = Runner.run_exn b in
+      Printf.printf " done.\n%!"; res
+    in
     match kind_of_file selector with
     | `Noent ->
         (* Not found, but can be an OPAM package name... *)
