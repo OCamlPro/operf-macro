@@ -212,9 +212,9 @@ module Process = struct
     let stdout_filename = "stdout" in
     let stderr_filename = "stderr" in
     let tmp_stdout =
-      Unix.(openfile stdout_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o600) in
+      Unix.(openfile stdout_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o644) in
     let tmp_stderr =
-      Unix.(openfile stderr_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o600) in
+      Unix.(openfile stderr_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o644) in
     let state = p_ops.new_f () in
     p_ops.start_f state;
     match Unix.fork () with
@@ -371,7 +371,7 @@ module Runner = struct
     (* We run benchmarks in a temporary directory that we create now. *)
     let temp_dir = Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) in
     (try
-      Unix.mkdir Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) 0o600
+      Unix.mkdir Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) 0o755
      with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
     Unix.chdir temp_dir;
 
