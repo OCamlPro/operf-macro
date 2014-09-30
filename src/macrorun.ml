@@ -69,18 +69,21 @@ let make_bench_and_run copts cmd bench_out topics =
       ~speed:`Fast
       ~topics ()
   in
-  let res = Runner.run_exn bench in
 
-  (* Write the result in the file specified by -o, or stdout and
-     maybe in cache as well *)
-  write_res_copts copts res;
-
-  match bench_out with
+  (* Write benchmark to file if asked for *)
+  (match bench_out with
   | None -> ()
   | Some benchfile ->
       let oc = open_out benchfile in
       Printf.fprintf oc "%s" (Benchmark.to_string bench);
-      close_out oc
+      close_out oc);
+
+  (* Run the benchmark *)
+  let res = Runner.run_exn bench in
+
+  (* Write the result in the file specified by -o, or stdout and maybe
+     in cache as well *)
+  write_res_copts copts res
 
 let perf copts cmd evts bench_out =
   (* Separate events from the event list given in PERF format *)
