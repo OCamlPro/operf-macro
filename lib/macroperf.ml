@@ -133,6 +133,7 @@ module Execution = struct
     stdout: string;
     stderr: string;
     data: (Topic.t * Measure.t) list;
+    checked: bool option
   } with sexp
 
   type t = [ `Ok of exec | `Timeout | `Error of string ]
@@ -156,6 +157,7 @@ module Benchmark = struct
     name: string;
     descr: string option;
     cmd: string list;
+    cmd_check: string list;
     env: string list option;
     nb_iter: int;
     speed: speed;
@@ -166,8 +168,9 @@ module Benchmark = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~name ?descr ~cmd ?env ?(nb_iter=1) ~speed ?(timeout=600) ~topics () =
-    { name; descr; cmd; env; nb_iter; speed; timeout; topics; }
+  let make ~name ?descr ~cmd ?(cmd_check=[])
+      ?env ?(nb_iter=1) ~speed ?(timeout=600) ~topics () =
+    { name; descr; cmd; cmd_check; env; nb_iter; speed; timeout; topics; }
 end
 
 module Result = struct
@@ -205,7 +208,7 @@ module Process = struct
     state_f: 'a -> (Topic.t * Measure.t) list
   }
 
-  let with_process_exn ?env ?timeout cmd p_ops =
+  let with_process_exn ?env ?timeout ?chk_cmd cmd p_ops =
     let stdout_filename = "stdout" in
     let stderr_filename = "stderr" in
     let tmp_stdout =
@@ -238,6 +241,11 @@ module Process = struct
           stdout = Util.File.string_of_file stdout_filename;
           stderr = Util.File.string_of_file stderr_filename;
           data = p_ops.state_f state;
+          checked = (match chk_cmd with
+            | None -> None
+            | Some chk ->
+                (match Sys.command (String.concat " " chk)
+                 with 0 -> Some true | _ -> Some false))
         }
 
   let with_process ?env ?timeout cmd p_ops =
@@ -256,7 +264,7 @@ end
 module Perf_wrapper = struct
   include Process
 
-  let run_once ?env ?timeout cmd evts =
+  let run_once ?env ?timeout ?chk_cmd cmd evts =
     let perf_cmdline = ["perf"; "stat"; "-x,"; ] in
     let perf_cmdline = match evts with
       | [] -> perf_cmdline
@@ -293,6 +301,10 @@ module Perf_wrapper = struct
                          acc
                   )
                   [] stderr_lines);
+          checked=(match chk_cmd with
+              | None -> None
+              | Some chk -> (match Sys.command (String.concat " " chk)
+                             with 0 -> Some true | _ -> Some false))
         }
     with
     | Unix.Unix_error (Unix.EINTR, _, _) -> `Timeout
@@ -300,7 +312,7 @@ module Perf_wrapper = struct
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
         `Exn exn
 
-  let run ?env ?timeout ?(nb_iter=1) cmd evts =
+  let run ?env ?timeout ?(nb_iter=1) ?chk_cmd cmd evts =
     run_n (fun () -> run_once ?env ?timeout cmd evts) nb_iter
 end
 
@@ -324,7 +336,7 @@ end
 module Libperf_wrapper = struct
   include Process
 
-  let run_once ?env ?timeout cmd attrs =
+  let run_once ?env ?timeout ?chk_cmd cmd attrs =
     let open Perf in
     let attrs = List.map Perf.Attr.make attrs in
     (* /!\ Perf.with_process <> Process.with_process, but similar /!\ *)
@@ -333,7 +345,11 @@ module Libperf_wrapper = struct
     | `Ok {process_status; stdout; stderr; data;} ->
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
-        `Ok Execution.{ process_status; stdout; stderr; data; }
+        let checked = match chk_cmd with
+          | None -> None
+          | Some chk -> (match Sys.command (String.concat " " chk) with
+              | 0 -> Some true | _ -> Some false) in
+        `Ok Execution.{ process_status; stdout; stderr; data; checked; }
     | `Timeout -> `Timeout
     | `Exn e -> `Exn e
 

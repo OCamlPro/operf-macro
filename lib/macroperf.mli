@@ -67,6 +67,7 @@ module Execution : sig
     stdout: string;
     stderr: string;
     data: (Topic.t * Measure.t) list;
+    checked: bool option;
   }
   (** Type representing the successful execution of a benchmark. *)
 
@@ -90,6 +91,9 @@ module Benchmark : sig
     (** Command line to run the benchmark. The first item of the list
         is the full path of the benchmark executable, or its name if in
         PATH *)
+    cmd_check: string list;
+    (** Command line of the check program. It is used to check if the
+        benchmark has executed correctly. *)
     env: string list option;
     (** Optional environment for the benchmark *)
     nb_iter: int;
@@ -106,6 +110,7 @@ module Benchmark : sig
     name:string ->
     ?descr:string ->
     cmd:string list ->
+    ?cmd_check:string list ->
     ?env:string list ->
     ?nb_iter:int ->
     speed:speed ->
