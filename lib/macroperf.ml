@@ -369,9 +369,10 @@ module Runner = struct
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
-    let temp_dir = Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) in
+    let temp_dir = Filename.temp_file "macroperf" "" in
+    Unix.unlink temp_dir;
     (try
-      Unix.mkdir Util.Opam.(Filename.get_temp_dir_name () / b.name ^ "." ^ switch) 0o755
+       Unix.mkdir temp_dir 0o755
      with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
     Unix.chdir temp_dir;
 
