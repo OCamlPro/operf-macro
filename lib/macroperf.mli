@@ -67,6 +67,7 @@ module Execution : sig
     stdout: string;
     stderr: string;
     data: (Topic.t * Measure.t) list;
+    duration: int64; (** In nanoseconds. *)
     checked: bool option;
   }
   (** Type representing the successful execution of a benchmark. *)
@@ -96,8 +97,6 @@ module Benchmark : sig
         benchmark has executed correctly. *)
     env: string list option;
     (** Optional environment for the benchmark *)
-    nb_iter: int;
-    (** Number of iterations *)
     speed: speed;
     (** Use to characterize the execution time of a benchmark *)
     timeout: int;
@@ -112,7 +111,6 @@ module Benchmark : sig
     cmd:string list ->
     ?cmd_check:string list ->
     ?env:string list ->
-    ?nb_iter:int ->
     speed:speed ->
     ?timeout:int ->
     topics:Topic.t list ->

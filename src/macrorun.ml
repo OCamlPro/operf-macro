@@ -2,7 +2,6 @@ open Macroperf
 
 type copts = {
   output_file: string;
-  nb_iter: int;
   ignore_out: [`Stdout | `Stderr] list;
 }
 
@@ -61,11 +60,8 @@ let make_bench_and_run copts cmd bench_out topics =
   let bench =
     Benchmark.make
       ~name:name_uscore
-      ~descr:("Benchmark of ``" ^ name ^
-              "'' avg. over " ^ string_of_int copts.nb_iter ^
-              " iterations.")
+      ~descr:("Benchmark of " ^ name)
       ~cmd
-      ~nb_iter:copts.nb_iter
       ~speed:`Fast
       ~topics ()
   in
@@ -209,8 +205,8 @@ let help_secs = [
   `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
   `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
-let copts output_file nb_iter ignore_out =
-  { output_file; nb_iter;
+let copts output_file ignore_out =
+  { output_file;
     ignore_out=List.map
         (function
           | "stdout" -> `Stdout
@@ -225,13 +221,10 @@ let copts_t =
   let output_file =
     let doc = "File to write the result to (default: stdout)." in
     Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc) in
-  let nb_iter =
-    let doc = "Number of iterations (default: 1)." in
-    Arg.(value & opt int 1 & info ["r"; "repeat"] ~docv:"<n>" ~docs ~doc) in
   let ignore_out =
     let doc = "Discard program output (default: none)." in
     Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
-  Term.(pure copts $ output_file $ nb_iter $ ignore_out)
+  Term.(pure copts $ output_file $ ignore_out)
 
 let help_cmd =
   let topic =

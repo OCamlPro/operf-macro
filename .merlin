@@ -13,3 +13,4 @@ PKG cmdliner
 PKG opam-lib
 PKG xdg-basedir
 PKG perf
+PKG oclock

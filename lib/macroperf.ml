@@ -133,6 +133,7 @@ module Execution = struct
     stdout: string;
     stderr: string;
     data: (Topic.t * Measure.t) list;
+    duration: int64;
     checked: bool option
   } with sexp
 
@@ -159,7 +160,6 @@ module Benchmark = struct
     cmd: string list;
     cmd_check: string list;
     env: string list option;
-    nb_iter: int;
     speed: speed;
     timeout: int;
     topics: Topic.t list;
@@ -169,8 +169,8 @@ module Benchmark = struct
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
   let make ~name ?descr ~cmd ?(cmd_check=[])
-      ?env ?(nb_iter=1) ~speed ?(timeout=600) ~topics () =
-    { name; descr; cmd; cmd_check; env; nb_iter; speed; timeout; topics; }
+      ?env ~speed ?(timeout=600) ~topics () =
+    { name; descr; cmd; cmd_check; env; speed; timeout; topics; }
 end
 
 module Result = struct
@@ -200,65 +200,25 @@ end
 
 module Process = struct
 
-
-  type 'a process_ops = {
-    new_f: unit -> 'a;
-    start_f: 'a -> unit;
-    stop_f: 'a -> unit;
-    state_f: 'a -> (Topic.t * Measure.t) list
-  }
-
-  let with_process_exn ?env ?timeout ?chk_cmd cmd p_ops =
-    let stdout_filename = "stdout" in
-    let stderr_filename = "stderr" in
-    let tmp_stdout =
-      Unix.(openfile stdout_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o644) in
-    let tmp_stderr =
-      Unix.(openfile stderr_filename [O_WRONLY; O_CREAT; O_TRUNC] 0o644) in
-    let state = p_ops.new_f () in
-    p_ops.start_f state;
-    match Unix.fork () with
-    | 0 ->
-        (* child *)
-        Unix.(dup2 tmp_stdout stdout; close tmp_stdout);
-        Unix.(dup2 tmp_stderr stderr; close tmp_stderr);
-        (match env with
-         | None -> Unix.execvp (List.hd cmd) (Array.of_list cmd)
-         | Some env -> Unix.execvpe (List.hd cmd)
-                         (Array.of_list cmd) (Array.of_list env))
-    | n ->
-        (* parent *)
-        (* Setup an alarm if timeout is specified. The alarm signal
-           handles do nothing, but this will make waitpid fail with
-           EINTR, unblocking the program. *)
-        let (_:int) = match timeout with None -> 0 | Some t -> Unix.alarm t in
-        Sys.(set_signal sigalrm (Signal_handle (fun _ -> ())));
-        let _, process_status = Unix.waitpid [] n in
-        p_ops.stop_f state;
-        Unix.(close tmp_stdout; close tmp_stderr);
-        Execution.{
-          process_status;
-          stdout = Util.File.string_of_file stdout_filename;
-          stderr = Util.File.string_of_file stderr_filename;
-          data = p_ops.state_f state;
-          checked = (match chk_cmd with
-            | None -> None
-            | Some chk ->
-                (match Sys.command (String.concat " " chk)
-                 with 0 -> Some true | _ -> Some false))
-        }
-
-  let with_process ?env ?timeout cmd p_ops =
-    try `Ok (with_process_exn ?env ?timeout cmd p_ops)
-    with
-    | Unix.Unix_error (Unix.EINTR, _, _) -> `Timeout
-    | exn -> `Exn exn
-
-  let run_n f n =
+  (* This function computes how many times a benchmark will be run
+     according to its running time. Currently: 3 times if the
+     benchmark take more than 5 minutes, otherwise up to 5 minutes
+     each, maximum 1000 times *)
+  let run ?(min_times=3) ?(max_times=1000) ?(avg_duration=300000000000) f =
     let rec run_n acc = function
       | 0 -> acc
       | n -> let exec = f () in run_n (exec::acc) (n-1)
-    in run_n [] n
+    in
+    let exec = f () in
+    match exec with
+    | `Ok e ->
+        let duration = Int64.to_int e.Execution.duration in
+        (match duration with
+        | t when t > avg_duration -> run_n [] (min_times-1)
+        | t when t < avg_duration / max_times -> run_n [] (max_times-1)
+        | t -> run_n [] (avg_duration / t - 1))
+    | other -> [other]
+
 end
 
 module Perf_wrapper = struct
@@ -274,6 +234,7 @@ module Perf_wrapper = struct
       | None -> [|"LANG=C"|]
       | Some env -> Array.of_list @@ "LANG=C"::env in
     let cmd_string = String.concat " " cmd in
+    let time_start = Oclock.(gettime monotonic) in
     let p_stdout, p_stdin, p_stderr = Unix.open_process_full cmd_string env in
     try
       let stdout_string = Util.File.string_of_ic p_stdout in
@@ -284,6 +245,7 @@ module Perf_wrapper = struct
       let (_:int) = match timeout with None -> 0 | Some t -> Unix.alarm t in
       Sys.(set_signal sigalrm (Signal_handle (fun _ -> ())));
       let process_status =  Unix.close_process_full (p_stdout, p_stdin, p_stderr) in
+      let time_end = Oclock.(gettime monotonic) in
       let rex = Re.(str "," |> compile) in
       let stderr_lines = List.map (Re_pcre.split ~rex) stderr_lines in
       `Ok Execution.{
@@ -301,6 +263,7 @@ module Perf_wrapper = struct
                          acc
                   )
                   [] stderr_lines);
+          duration = Int64.(rem time_end time_start);
           checked=(match chk_cmd with
               | None -> None
               | Some chk -> (match Sys.command (String.concat " " chk)
@@ -312,25 +275,8 @@ module Perf_wrapper = struct
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
         `Exn exn
 
-  let run ?env ?timeout ?(nb_iter=1) ?chk_cmd cmd evts =
-    run_n (fun () -> run_once ?env ?timeout cmd evts) nb_iter
-end
-
-module Time_wrapper = struct
-  include Process
-
-  (* TODO: implement `Sys and `User times. *)
-  let run_once ?env ?timeout cmd times =
-    let p_ops = {
-      new_f = (fun () -> ref 0.);
-      start_f = (fun r -> r := Unix.gettimeofday ());
-      stop_f = (fun r -> let now = Unix.gettimeofday () in r := !r -. now);
-      state_f = (fun r -> [Topic.(Topic (`User, Time)), `Float !r]);
-    } in
-    with_process ?env ?timeout cmd p_ops
-
-  let run ?env ?timeout ?(nb_iter=1) cmd times =
-    run_n (fun () -> run_once ?env ?timeout cmd times) nb_iter
+  let run ?env ?timeout ?chk_cmd cmd evts =
+    run (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
 end
 
 module Libperf_wrapper = struct
@@ -342,19 +288,19 @@ module Libperf_wrapper = struct
     (* /!\ Perf.with_process <> Process.with_process, but similar /!\ *)
     Perf.with_process
       ?env ?timeout ~stdout:"stdout" ~stderr:"stderr" cmd attrs |> function
-    | `Ok {process_status; stdout; stderr; data;} ->
+    | `Ok {process_status; stdout; stderr; duration; data;} ->
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
         let checked = match chk_cmd with
           | None -> None
           | Some chk -> (match Sys.command (String.concat " " chk) with
               | 0 -> Some true | _ -> Some false) in
-        `Ok Execution.{ process_status; stdout; stderr; data; checked; }
+        `Ok Execution.{ process_status; stdout; stderr; duration; data; checked; }
     | `Timeout -> `Timeout
     | `Exn e -> `Exn e
 
   let run ?env ?timeout ?(nb_iter=1) cmd evts =
-    run_n (fun () -> run_once ?env ?timeout cmd evts) nb_iter
+    run (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Runner = struct
@@ -392,16 +338,13 @@ module Runner = struct
     let run_execs { time; gc; libperf; perf; } b =
       (* Launch the executions only if the list of topics is
          non-empty. *)
-      let time_res = match time with
-        | [] -> []
-        | time -> Time_wrapper.(run ?env:b.env ~nb_iter:b.nb_iter b.cmd time) in
       let libperf_res = match libperf with
         | [] -> []
-        | libperf -> Libperf_wrapper.(run ?env:b.env ~nb_iter:b.nb_iter b.cmd libperf) in
+        | libperf -> Libperf_wrapper.(run ?env:b.env b.cmd libperf) in
       let perf_res = match perf with
         | [] -> []
-        | perf -> Perf_wrapper.(run ?env:b.env ~nb_iter:b.nb_iter b.cmd perf) in
-      (time_res @ libperf_res @ perf_res)
+        | perf -> Perf_wrapper.(run ?env:b.env b.cmd perf) in
+      (libperf_res @ perf_res)
     in
 
     let execs = run_execs execs b in
