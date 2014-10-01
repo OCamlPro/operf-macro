@@ -106,6 +106,15 @@ module Measure = struct
     try `Int (Int64.of_string s) with _ ->
       try `Float (float_of_string s) with _ ->
         `Error
+
+  let of_float f = `Float f
+  let to_float = function
+    | `Float f -> f
+    | _ -> invalid_arg "Measure.of_float"
+  let of_int64 i = `Int i
+  let to_int64 = function
+    | `Int i -> i
+    | _ -> invalid_arg "Measure.to_int64"
 end
 
 module Execution = struct
@@ -133,7 +142,6 @@ module Execution = struct
     stdout: string;
     stderr: string;
     data: (Topic.t * Measure.t) list;
-    duration: int64;
     checked: bool option
   } with sexp
 
@@ -148,6 +156,12 @@ module Execution = struct
     | `Error _, _ -> t
     | `Ok e, `Stdout -> `Ok { e with stdout="" }
     | `Ok e, `Stderr -> `Ok { e with stderr="" }
+
+  let find kind exec =
+    List.filter (fun (t, m) -> t = kind) exec.data
+
+  let duration exec =
+    List.hd (find Topic.(Topic (`Real, Time)) exec) |> snd |> Measure.to_int64
 end
 
 module Benchmark = struct
@@ -204,7 +218,7 @@ module Process = struct
      according to its running time. Currently: 3 times if the
      benchmark take more than 5 minutes, otherwise up to 5 minutes
      each, maximum 1000 times *)
-  let run ?(min_times=3) ?(max_times=1000) ?(avg_duration=300000000000) f =
+  let run ?(min_iter=3) ?(max_iter=1000) ?(avg_duration=300000000000L) f =
     let rec run_n acc = function
       | 0 -> acc
       | n -> let exec = f () in run_n (exec::acc) (n-1)
@@ -212,11 +226,11 @@ module Process = struct
     let exec = f () in
     match exec with
     | `Ok e ->
-        let duration = Int64.to_int e.Execution.duration in
+        let duration = Execution.duration e in
         (match duration with
-        | t when t > avg_duration -> run_n [] (min_times-1)
-        | t when t < avg_duration / max_times -> run_n [] (max_times-1)
-        | t -> run_n [] (avg_duration / t - 1))
+        | t when t > avg_duration -> run_n [exec] (min_iter-1)
+        | t when t < Int64.(div avg_duration (of_int max_iter)) -> run_n [exec] (max_iter-1)
+        | t -> run_n [exec] (Int64.(div avg_duration t |> to_int) - 1))
     | other -> [other]
 
 end
@@ -262,8 +276,8 @@ module Perf_wrapper = struct
                            "Ignoring perf result line [%s]" (String.concat "," l);
                          acc
                   )
-                  [] stderr_lines);
-          duration = Int64.(rem time_end time_start);
+                  [Topic.(Topic (`Real, Time), `Int Int64.(rem time_end time_start))]
+                  stderr_lines);
           checked=(match chk_cmd with
               | None -> None
               | Some chk -> (match Sys.command (String.concat " " chk)
@@ -275,8 +289,8 @@ module Perf_wrapper = struct
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
         `Exn exn
 
-  let run ?env ?timeout ?chk_cmd cmd evts =
-    run (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
+  let run ?env ?timeout ?max_iter ?chk_cmd cmd evts =
+    run ?max_iter (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
 end
 
 module Libperf_wrapper = struct
@@ -291,16 +305,17 @@ module Libperf_wrapper = struct
     | `Ok {process_status; stdout; stderr; duration; data;} ->
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
+        let data = (Topic.(Topic ((`Real, Time))), `Int duration)::data in
         let checked = match chk_cmd with
           | None -> None
           | Some chk -> (match Sys.command (String.concat " " chk) with
               | 0 -> Some true | _ -> Some false) in
-        `Ok Execution.{ process_status; stdout; stderr; duration; data; checked; }
+        `Ok Execution.{ process_status; stdout; stderr; data; checked; }
     | `Timeout -> `Timeout
     | `Exn e -> `Exn e
 
-  let run ?env ?timeout ?(nb_iter=1) cmd evts =
-    run (fun () -> run_once ?env ?timeout cmd evts)
+  let run ?env ?timeout ?max_iter cmd evts =
+    run ?max_iter (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Runner = struct
@@ -311,7 +326,7 @@ module Runner = struct
     perf: string list;
   }
 
-  let run_exn b =
+  let run_exn ?(max_iter=1000) b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
@@ -340,16 +355,16 @@ module Runner = struct
          non-empty. *)
       let libperf_res = match libperf with
         | [] -> []
-        | libperf -> Libperf_wrapper.(run ?env:b.env b.cmd libperf) in
+        | libperf -> Libperf_wrapper.(run ?env:b.env ~max_iter b.cmd libperf) in
       let perf_res = match perf with
         | [] -> []
-        | perf -> Perf_wrapper.(run ?env:b.env b.cmd perf) in
+        | perf -> Perf_wrapper.(run ?env:b.env ~max_iter b.cmd perf) in
       (libperf_res @ perf_res)
     in
 
     let execs = run_execs execs b in
     Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
 
-  let run b =
+  let run ?(max_iter=1000) b =
     try Some (run_exn b) with _ -> None
 end

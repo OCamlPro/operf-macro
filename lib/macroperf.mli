@@ -67,7 +67,6 @@ module Execution : sig
     stdout: string;
     stderr: string;
     data: (Topic.t * Measure.t) list;
-    duration: int64; (** In nanoseconds. *)
     checked: bool option;
   }
   (** Type representing the successful execution of a benchmark. *)
@@ -153,6 +152,6 @@ module Result : sig
 end
 
 module Runner : sig
-  val run_exn : Benchmark.t -> Result.t
-  val run     : Benchmark.t -> Result.t option
+  val run_exn : ?max_iter:int -> Benchmark.t -> Result.t
+  val run     : ?max_iter:int -> Benchmark.t -> Result.t option
 end
