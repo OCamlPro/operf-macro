@@ -221,7 +221,9 @@ module Process = struct
   let run ?(min_iter=3) ?(max_iter=1000) ?(avg_duration=300000000000L) f =
     let rec run_n acc = function
       | 0 -> acc
-      | n -> let exec = f () in run_n (exec::acc) (n-1)
+      | n ->
+          ignore (Statistics.enought_samples ~probability:0.99 ~confidence:0.05 [0.]);
+          let exec = f () in run_n (exec::acc) (n-1)
     in
     let exec = f () in
     match exec with
