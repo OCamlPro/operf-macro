@@ -226,35 +226,37 @@ module Process = struct
   }
 
   let fast = {
-    max_duration = 100000000L;
+    max_duration = 100_000_000L;
     probability = 0.99;
     confidence = 0.05;
   }
   let slow = {
-    max_duration = 1000000000L;
-    probability = 0.9;
+    max_duration = 1_000_000_000L;
+    probability = 0.99;
     confidence = 0.05;
   }
   let slower = {
-    max_duration = 300000000000L;
-    probability = 0.8;
+    max_duration = 300_000_000_000L;
+    probability = 0.99;
     confidence = 0.05;
   }
 
   let run ?(fast=fast) ?(slow=slow) ?(slower=slower) f =
 
-    let run_until ~probability ~confidence =
-      let rec run_until (acc : Execution.t list) =
+    let run_until ~probability ~confidence exec =
+      let rec run_until (nb_iter, acc) =
         let durations = List.map
             (function
               |`Ok e -> Execution.duration e |> Int64.to_float
               | _ -> 0.
             ) acc in
         match Statistics.enough_samples ~probability ~confidence durations with
-        | true -> acc
+        | true ->
+            Printf.printf " %d times... " nb_iter;
+            acc
         | false ->
-            let exec = f () in run_until (exec::acc) in
-      run_until []
+            let exec = f () in run_until (succ nb_iter, (exec::acc)) in
+      run_until (1, [exec])
     in
     let exec = f () in
     match exec with
@@ -262,10 +264,16 @@ module Process = struct
         let duration = Execution.duration e in
         (match duration with
         | t when t < fast.max_duration ->
-            run_until ~probability:fast.probability ~confidence:fast.confidence
+            run_until
+              ~probability:fast.probability
+              ~confidence:fast.confidence exec
         | t when t < slow.max_duration ->
-            run_until ~probability:slow.probability ~confidence:slow.confidence
-        | t -> run_until ~probability:slower.probability ~confidence:slower.confidence)
+            run_until
+              ~probability:slow.probability
+              ~confidence:slow.confidence exec
+        | t -> run_until
+                 ~probability:slower.probability
+                 ~confidence:slower.confidence exec)
     | other -> [other]
 
 end
