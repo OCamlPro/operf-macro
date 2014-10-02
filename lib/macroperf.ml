@@ -50,10 +50,21 @@ module Util = struct
   module Opam = struct
     include FS
     let root = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam"
-    let config = OpamFile.Config.read
-        Filename.(concat root "config" |> OpamFilename.of_string)
-    let switch = OpamFile.Config.switch config |> OpamSwitch.to_string
-    let swtch = switch (* hack *)
+
+    let switch =
+      let rex = Re_pcre.regexp "switch: \"([^\"]*)\"" in
+      let config_lines = File.lines_of_file @@ root / "config" in
+      List.fold_left
+        (fun a l ->
+           try
+             let substrings = Re_pcre.exec ~rex l in
+             Re_pcre.get_substring substrings 1
+           with _ -> a
+        )
+        "" config_lines
+
+    let swtch = switch
+
     let share ?switch () = match switch with
       | None -> root / swtch / "share"
       | Some s -> root / s / "share"
@@ -197,13 +208,7 @@ module Result = struct
   let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
   let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
 
-  let make ~src ?(context_id="") ~execs () =
-    let execs = List.map (function
-        | `Ok r -> `Ok r
-        | `Timeout -> `Timeout
-        | `Exn exn ->`Error (Printexc.to_string exn)
-      ) execs in
-    { src; context_id; execs; }
+  let make ~src ?(context_id="") ~execs () = { src; context_id; execs; }
 
   let strip chan t = match chan with
     | `Stdout ->
@@ -214,25 +219,53 @@ end
 
 module Process = struct
 
-  (* This function computes how many times a benchmark will be run
-     according to its running time. Currently: 3 times if the
-     benchmark take more than 5 minutes, otherwise up to 5 minutes
-     each, maximum 1000 times *)
-  let run ?(min_iter=3) ?(max_iter=1000) ?(avg_duration=300000000000L) f =
-    let rec run_n acc = function
-      | 0 -> acc
-      | n ->
-          ignore (Statistics.enought_samples ~probability:0.99 ~confidence:0.05 [0.]);
-          let exec = f () in run_n (exec::acc) (n-1)
+  type speed_characterization = {
+    max_duration: int64;
+    probability: float;
+    confidence: float;
+  }
+
+  let fast = {
+    max_duration = 100000000L;
+    probability = 0.99;
+    confidence = 0.05;
+  }
+  let slow = {
+    max_duration = 1000000000L;
+    probability = 0.9;
+    confidence = 0.05;
+  }
+  let slower = {
+    max_duration = 300000000000L;
+    probability = 0.8;
+    confidence = 0.05;
+  }
+
+  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) f =
+
+    let run_until ~probability ~confidence =
+      let rec run_until (acc : Execution.t list) =
+        let durations = List.map
+            (function
+              |`Ok e -> Execution.duration e |> Int64.to_float
+              | _ -> 0.
+            ) acc in
+        match Statistics.enough_samples ~probability ~confidence durations with
+        | true -> acc
+        | false ->
+            let exec = f () in run_until (exec::acc) in
+      run_until []
     in
     let exec = f () in
     match exec with
     | `Ok e ->
         let duration = Execution.duration e in
         (match duration with
-        | t when t > avg_duration -> run_n [exec] (min_iter-1)
-        | t when t < Int64.(div avg_duration (of_int max_iter)) -> run_n [exec] (max_iter-1)
-        | t -> run_n [exec] (Int64.(div avg_duration t |> to_int) - 1))
+        | t when t < fast.max_duration ->
+            run_until ~probability:fast.probability ~confidence:fast.confidence
+        | t when t < slow.max_duration ->
+            run_until ~probability:slow.probability ~confidence:slow.confidence
+        | t -> run_until ~probability:slower.probability ~confidence:slower.confidence)
     | other -> [other]
 
 end
@@ -289,10 +322,10 @@ module Perf_wrapper = struct
     | Unix.Unix_error (Unix.EINTR, _, _) -> `Timeout
     | exn ->
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
-        `Exn exn
+        Execution.error exn
 
-  let run ?env ?timeout ?max_iter ?chk_cmd cmd evts =
-    run ?max_iter (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
+  let run ?env ?timeout ?chk_cmd cmd evts =
+    run (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
 end
 
 module Libperf_wrapper = struct
@@ -314,10 +347,10 @@ module Libperf_wrapper = struct
               | 0 -> Some true | _ -> Some false) in
         `Ok Execution.{ process_status; stdout; stderr; data; checked; }
     | `Timeout -> `Timeout
-    | `Exn e -> `Exn e
+    | `Exn e -> Execution.error e
 
-  let run ?env ?timeout ?max_iter cmd evts =
-    run ?max_iter (fun () -> run_once ?env ?timeout cmd evts)
+  let run ?env ?timeout cmd evts =
+    run (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Runner = struct
@@ -328,7 +361,7 @@ module Runner = struct
     perf: string list;
   }
 
-  let run_exn ?(max_iter=1000) b =
+  let run_exn b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
@@ -357,16 +390,16 @@ module Runner = struct
          non-empty. *)
       let libperf_res = match libperf with
         | [] -> []
-        | libperf -> Libperf_wrapper.(run ?env:b.env ~max_iter b.cmd libperf) in
+        | libperf -> Libperf_wrapper.(run ?env:b.env b.cmd libperf) in
       let perf_res = match perf with
         | [] -> []
-        | perf -> Perf_wrapper.(run ?env:b.env ~max_iter b.cmd perf) in
+        | perf -> Perf_wrapper.(run ?env:b.env b.cmd perf) in
       (libperf_res @ perf_res)
     in
 
     let execs = run_execs execs b in
     Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
 
-  let run ?(max_iter=1000) b =
+  let run b =
     try Some (run_exn b) with _ -> None
 end

@@ -1,7 +1,6 @@
 open Macroperf
 
 type copts = {
-  max_iter: int;
   output_file: string;
   ignore_out: [`Stdout | `Stderr] list;
 }
@@ -76,7 +75,7 @@ let make_bench_and_run copts cmd bench_out topics =
       close_out oc);
 
   (* Run the benchmark *)
-  let res = Runner.run_exn ~max_iter:copts.max_iter bench in
+  let res = Runner.run_exn bench in
 
   (* Write the result in the file specified by -o, or stdout and maybe
      in cache as well *)
@@ -147,7 +146,7 @@ let run copts switch selectors =
       let bench_str = Util.File.string_of_file filename in
       let b = Benchmark.of_string bench_str in
       Printf.printf "Running benchmark %s...%!" b.Benchmark.name;
-      let res = Runner.run_exn ~max_iter:copts.max_iter b in
+      let res = Runner.run_exn b in
       Printf.printf " done.\n%!"; res
     in
     match kind_of_file selector with
@@ -206,9 +205,8 @@ let help_secs = [
   `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
   `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
-let copts output_file ignore_out max_iter =
-  { max_iter;
-    output_file;
+let copts output_file ignore_out =
+  { output_file;
     ignore_out=List.map
         (function
           | "stdout" -> `Stdout
@@ -220,16 +218,13 @@ let copts output_file ignore_out max_iter =
 
 let copts_t =
   let docs = copts_sect in
-  let max_iter =
-    let doc = "Maximum number of executions (default: 1000)." in
-    Arg.(value & opt int 1000 & info ["l"; "limit"] ~docv:"int" ~docs ~doc) in
   let output_file =
     let doc = "File to write the result to (default: stdout)." in
     Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc) in
   let ignore_out =
     let doc = "Discard program output (default: none)." in
     Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
-  Term.(pure copts $ output_file $ ignore_out $ max_iter)
+  Term.(pure copts $ output_file $ ignore_out)
 
 let help_cmd =
   let topic =
@@ -327,5 +322,5 @@ let run_cmd =
 
 let cmds = [help_cmd; run_cmd; perf_cmd; libperf_cmd; time_cmd]
 
-let () = match Term.eval_choice default_cmd cmds with
+let () = match Term.eval_choice ~catch:false default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0

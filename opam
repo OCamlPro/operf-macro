@@ -9,5 +9,5 @@ license: "GPLv2"
 build: [
   [ "ocaml" "pkg/build.ml" "native=true" "native-dynlink=true" ]
 ]
-depends: ["ocamlfind" {build} "sexplib" "re" "cmdliner" "perf" "ocaml-xdg-basedir" "opam-lib" ]
+depends: ["ocamlfind" {build} "sexplib" "re" "cmdliner" "perf" "ocaml-xdg-basedir"]
 dev-repo: "git://github.com/OCamlPro/operf-macro"

@@ -1,7 +1,8 @@
-let find t ~df =
-  if df-1 > Array.length t
+let find t ~nu =
+  if nu < 1 then invalid_arg "t-distribution: nu must be >= 1";
+  if nu-1 >= Array.length t
   then t.(Array.length t-1)
-  else t.(df-1)
+  else t.(nu-1)
 
 let epsilon = 1e-5
 
@@ -32,9 +33,11 @@ let mean_and_confidence_interval ~probability l =
   let len = List.length l in
   let alpha = 1. -. probability in
   let p = 1. -. alpha /. 2. in
-  let t = quant ~p ~df:(len - 1) in
+  let t = quant ~p ~nu:(len - 1) in
   mean, (sqrt variance /. sqrt (float len)) *. t
 
-let enought_samples ?(probability=0.95) ?(confidence=0.05) l =
-  let mean, interval = mean_and_confidence_interval ~probability l in
-  interval /. mean <= confidence
+let enough_samples ?(probability=0.95) ?(confidence=0.05) l =
+  if List.length l < 2 then false
+  else
+    let mean, interval = mean_and_confidence_interval ~probability l in
+    interval /. mean <= confidence

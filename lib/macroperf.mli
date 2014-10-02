@@ -143,7 +143,7 @@ module Result : sig
   val make :
     src:Benchmark.t ->
     ?context_id:string ->
-    execs:[`Ok of Execution.exec | `Timeout | `Exn of exn] list -> unit ->
+    execs:Execution.t list -> unit ->
     t
 
   val strip : [`Stdout | `Stderr] -> t -> t
@@ -152,6 +152,6 @@ module Result : sig
 end
 
 module Runner : sig
-  val run_exn : ?max_iter:int -> Benchmark.t -> Result.t
-  val run     : ?max_iter:int -> Benchmark.t -> Result.t option
+  val run_exn : Benchmark.t -> Result.t
+  val run     : Benchmark.t -> Result.t option
 end
