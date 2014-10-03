@@ -107,28 +107,30 @@ let time copts cmd bench_out =
   make_bench_and_run copts cmd bench_out
     Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
 
+let kind_of_file filename =
+  let open Unix in
+  try
+    let st = Unix.stat filename in
+    match st.st_kind with
+    | S_REG -> `File
+    | S_DIR -> `Directory
+    | _     -> `Other_kind
+  with Unix_error (ENOENT, _, _) -> `Noent
+
+let is_benchmark_file filename =
+  kind_of_file filename = `File &&
+  Filename.check_suffix filename ".bench"
+
+let ls dirname =
+  let dh = Unix.opendir dirname in
+  let rec loop acc =
+    match Unix.readdir dh with
+    | name -> loop (name::acc)
+    | exception End_of_file -> acc
+  in loop []
+
 let run copts switch selectors =
   let share = Util.Opam.share ?switch () in
-
-  let kind_of_file filename =
-    let open Unix in
-    try
-      let st = Unix.stat filename in
-      match st.st_kind with
-      | S_REG -> `File
-      | S_DIR -> `Directory
-      | _     -> `Other_kind
-    with Unix_error (ENOENT, _, _) -> `Noent
-  in
-
-  let ls dirname =
-    let dh = Unix.opendir dirname in
-    let rec loop acc =
-      match Unix.readdir dh with
-      | name -> loop (name::acc)
-      | exception End_of_file -> acc
-    in loop []
-  in
 
   (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
   let selectors = match selectors with
@@ -162,17 +164,10 @@ let run copts switch selectors =
         [] (* Do nothing if not file or directory *)
     | `Directory ->
         (* Get a list of .bench files in the directory and run them *)
-        let names = ls selector in
-        let names =
-          List.filter
-            (fun n ->
-               let len = String.length n in
-               len > 6 &&
-               kind_of_file Filename.(concat selector n) = `File &&
-               String.sub n (len-6) 6 = ".bench")
-            names
-        in
-        List.map run_bench @@ List.map (fun n -> Filename.concat selector n) names
+        ls selector
+        |> List.map (Filename.concat selector)
+        |> List.filter is_benchmark_file
+        |> List.map run_bench
     | `File ->
         List.map run_bench [selector]
   in
@@ -192,6 +187,18 @@ let help copts man_format cmds topic = match topic with
       | `Ok t ->
           let page = (topic, 7, "", "", ""), [`S topic; `P "Say something";] in
           `Ok (Cmdliner.Manpage.print man_format Format.std_formatter page)
+
+let list switch =
+  let share = Util.Opam.share ?switch () in
+  ls share
+  |> List.map (fun n -> Filename.concat share n)
+  |> List.filter (fun n -> kind_of_file n = `Directory)
+  |> List.iter
+    (fun selector ->
+       ls selector
+       |> List.map (Filename.concat selector)
+       |> List.filter is_benchmark_file
+       |> List.iter (fun s -> Format.printf "%s@." s))
 
 open Cmdliner
 
@@ -301,10 +308,11 @@ let time_cmd =
   Term.(pure time $ copts_t $ cmd $ bench_out),
   Term.info "time" ~doc ~sdocs:copts_sect ~man
 
+let switch =
+  let doc = "Use the provided OPAM switch instead of using OPAM's current one." in
+  Arg.(value & opt (some string) None & info ["switch"] ~docv:"OPAM switch name" ~doc)
+
 let run_cmd =
-  let switch =
-    let doc = "Use the provided OPAM switch instead of using OPAM's current one." in
-    Arg.(value & opt (some string) None & info ["switch"] ~docv:"OPAM switch name" ~doc) in
   let selector =
     let doc = "If the argument correspond to a filename, the benchmark \
                is executed from this file, otherwise \
@@ -320,7 +328,16 @@ let run_cmd =
   Term.(pure run $ copts_t $ switch $ selector),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
-let cmds = [help_cmd; run_cmd; perf_cmd; libperf_cmd; time_cmd]
+let list_cmd =
+  let doc = "List installed OPAM benchmarks." in
+  let man = [
+    `S "DESCRIPTION";
+    `P "List installed OPAM benchmarks in the current switch."] @ help_secs
+  in
+  Term.(pure list $ switch),
+  Term.info "list" ~doc ~man
+
+let cmds = [help_cmd; run_cmd; list_cmd; perf_cmd; libperf_cmd; time_cmd]
 
 let () = match Term.eval_choice ~catch:false default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0
