@@ -243,7 +243,7 @@ module Process = struct
 
   let run ?(fast=fast) ?(slow=slow) ?(slower=slower) f =
 
-    let run_until ~probability ~confidence exec =
+    let run_until ~probability ~confidence init_acc =
       let rec run_until (nb_iter, acc) =
         let durations = List.map
             (function
@@ -255,25 +255,28 @@ module Process = struct
             Printf.printf " %d times... " nb_iter;
             acc
         | false ->
-            let exec = f () in run_until (succ nb_iter, (exec::acc)) in
-      run_until (1, [exec])
+            let exec = f () in
+            run_until (succ nb_iter, (exec::acc))
+      in
+      run_until (1, init_acc)
     in
     let exec = f () in
     match exec with
     | `Ok e ->
         let duration = Execution.duration e in
         (match duration with
-        | t when t < fast.max_duration ->
+        | t when t < fast.max_duration -> (* Fast *)
             run_until
               ~probability:fast.probability
-              ~confidence:fast.confidence exec
-        | t when t < slow.max_duration ->
+              ~confidence:fast.confidence []
+        | t when t < slow.max_duration -> (* Slow *)
             run_until
               ~probability:slow.probability
-              ~confidence:slow.confidence exec
-        | t -> run_until
-                 ~probability:slower.probability
-                 ~confidence:slower.confidence exec)
+              ~confidence:slow.confidence []
+        | t ->                            (* Slower: keep the first execution *)
+            run_until
+              ~probability:slower.probability
+              ~confidence:slower.confidence [exec])
     | other -> [other]
 
 end
