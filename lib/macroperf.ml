@@ -100,7 +100,43 @@ end
 
 module Topic = struct
   type time = [ `Real | `User | `Sys ] with sexp
-  type gc = [ `Alloc_major | `Alloc_minor | `Compactions ] with sexp
+  type gc =
+    [ `Minor_words
+    | `Promoted_words
+    | `Major_words
+    | `Minor_collections
+    | `Major_collections
+    | `Heap_words
+    | `Heap_chunks
+    | `Top_heap_words
+    | `Live_words
+    | `Live_blocks
+    | `Free_words
+    | `Free_blocks
+    | `Largest_free
+    | `Fragments
+    | `Compactions
+    ] with sexp
+
+  let gc_of_string_exn : string -> gc = function
+    | "minor_words"       -> `Minor_words
+    | "promoted_words"    -> `Promoted_words
+    | "major_words"       -> `Major_words
+    | "minor_collections" -> `Minor_collections
+    | "major_collections" -> `Major_collections
+    | "heap_words"        -> `Heap_words
+    | "heap_chunks"       -> `Heap_chunks
+    | "top_heap_words"    -> `Top_heap_words
+    | "live_words"        -> `Live_words
+    | "live_blocks"       -> `Live_blocks
+    | "free_words"        -> `Free_words
+    | "free_blocks"       -> `Free_blocks
+    | "largest_free"      -> `Largest_free
+    | "fragments"         -> `Fragments
+    | "compactions"       -> `Compactions
+    | _ -> invalid_arg "gc_of_string_exn"
+
+  let gc_of_string s = try Some (gc_of_string_exn s) with _ -> None
 
   type _ kind =
     (* Time related *)
@@ -325,6 +361,8 @@ module Process = struct
       run_until (1, init_acc)
     in
     let exec = f () in
+    (* Remove the OCAML_GC_STATS env variable. *)
+    Unix.putenv "OCAML_GC_STATS" "";
     match exec with
     | `Ok e ->
         let duration = Execution.duration e in
@@ -343,6 +381,16 @@ module Process = struct
               ~confidence:slower.confidence [exec])
     | other -> [other]
 
+  let data_of_gc_stats () =
+    let lines = Util.File.lines_of_file "gc_stats" in
+    List.map
+      (fun s ->
+         let i = String.index s ':' in
+         let gc = Topic.gc_of_string_exn @@ String.sub s 0 (i-1) in
+         let v = Int64.of_string @@ String.sub s (i+1) (String.length s - i - 1) in
+         (Topic.(Topic (gc, Gc), Measure.of_int64 v))
+      )
+      lines
 end
 
 module Perf_wrapper = struct
@@ -386,7 +434,8 @@ module Perf_wrapper = struct
                            "Ignoring perf result line [%s]" (String.concat "," l);
                          acc
                   )
-                  [Topic.(Topic (`Real, Time), `Int Int64.(rem time_end time_start))]
+                  ((try data_of_gc_stats () with _ -> []) @
+                   [Topic.(Topic (`Real, Time), `Int Int64.(rem time_end time_start))])
                   stderr_lines);
           checked=(match chk_cmd with
               | None -> None
@@ -416,6 +465,7 @@ module Libperf_wrapper = struct
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
         let data = (Topic.(Topic ((`Real, Time))), `Int duration)::data in
+        let data = try data @ data_of_gc_stats () with _ -> data in
         let checked = match chk_cmd with
           | None -> None
           | Some chk -> (match Sys.command (String.concat " " chk) with
@@ -447,6 +497,12 @@ module Runner = struct
      with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
     Unix.chdir temp_dir;
 
+    let env = match b.env with
+      | None -> ["OCAML_GC_STATS=gc_stats"] @
+                Array.to_list @@ Unix.environment ()
+      | Some e -> "OCAML_GC_STATS=gc_stats"::e
+    in
+
     (* Transform individial topics into a list of executions *)
     let execs =
       let open Topic in
@@ -465,10 +521,10 @@ module Runner = struct
          non-empty. *)
       let libperf_res = match libperf with
         | [] -> []
-        | libperf -> Libperf_wrapper.(run ?env:b.env b.cmd libperf) in
+        | libperf -> Libperf_wrapper.(run ~env b.cmd libperf) in
       let perf_res = match perf with
         | [] -> []
-        | perf -> Perf_wrapper.(run ?env:b.env b.cmd perf) in
+        | perf -> Perf_wrapper.(run ~env b.cmd perf) in
       (libperf_res @ perf_res)
     in
 
