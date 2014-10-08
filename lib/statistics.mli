@@ -1,3 +1,5 @@
+val mean_variance : float list -> float * float
+
 val mean_and_confidence_interval :
   probability:float -> float list ->
   float * float

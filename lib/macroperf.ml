@@ -1,9 +1,24 @@
 open Sexplib.Std
 
+module type SEXPABLE = sig
+  type t
+  val t_of_sexp : Sexplib.Type.t -> t
+  val sexp_of_t : t -> Sexplib.Type.t
+end
+
 module Util = struct
   module FS = struct
     let (/) = Filename.concat
     let home = Unix.getenv "HOME"
+    let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () / "operf" / "macro"
+
+    let ls dirname =
+      let dh = Unix.opendir dirname in
+      let rec loop acc =
+        match Unix.readdir dh with
+        | name -> loop (name::acc)
+        | exception End_of_file -> acc
+      in loop []
   end
 
   module File = struct
@@ -22,6 +37,18 @@ module Util = struct
       with exn ->
         close_in ic; raise exn
 
+    let sexp_of_file_exn filename conv =
+      let module SSA = Sexplib.Sexp.Annotated in
+      match Sexplib.Sexp.load_sexp_conv filename conv
+      with
+      | `Error (exn, SSA.Atom ({SSA.start_pos; SSA.end_pos}, _))
+      | `Error (exn, SSA.List ({SSA.start_pos; SSA.end_pos; _}, _, _)) ->
+          let open SSA in
+          Printf.eprintf "%s: Error at line %d, col %d-%d.\n"
+            filename start_pos.line start_pos.col end_pos.col;
+          raise exn
+      | `Result b -> b
+
     let lines_of_file filename =
       let ic = open_in filename in
       try
@@ -29,8 +56,8 @@ module Util = struct
       with exn ->
         close_in ic; raise exn
 
-    let write_string_to_file filename str =
-      let oc = open_out filename in
+    let write_string_to_file ~fn str =
+      let oc = open_out fn in
       try
         Printf.fprintf oc "%s" str;
         close_out oc
@@ -121,7 +148,8 @@ module Measure = struct
   let of_float f = `Float f
   let to_float = function
     | `Float f -> f
-    | _ -> invalid_arg "Measure.of_float"
+    | `Int i -> Int64.to_float i
+    | _ -> invalid_arg "Measure.to_float: cannot convert `Error to float"
   let of_int64 i = `Int i
   let to_int64 = function
     | `Int i -> i
@@ -190,9 +218,6 @@ module Benchmark = struct
     topics: Topic.t list;
   } with sexp
 
-  let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
-  let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
-
   let make ~name ?descr ~cmd ?(cmd_check=[])
       ?env ~speed ?(timeout=600) ~topics () =
     { name; descr; cmd; cmd_check; env; speed; timeout; topics; }
@@ -205,9 +230,6 @@ module Result = struct
     execs: Execution.t list;
   } with sexp
 
-  let of_string s = s |> Sexplib.Sexp.of_string |> t_of_sexp
-  let to_string t = t |> sexp_of_t |> Sexplib.Sexp.to_string_hum
-
   let make ~src ?(context_id="") ~execs () = { src; context_id; execs; }
 
   let strip chan t = match chan with
@@ -215,6 +237,48 @@ module Result = struct
         { t with execs = List.map (Execution.strip `Stdout) t.execs }
     | `Stderr ->
         { t with execs = List.map (Execution.strip `Stderr) t.execs }
+end
+
+module Summary = struct
+  type aggr = { mean: float; stddev: float } with sexp
+
+  type t = {
+    name: string;
+    context_id: string;
+    data: (Topic.t * aggr) list;
+  } with sexp
+
+  type all = ((string * string), t) Hashtbl.t with sexp
+
+  let of_result r =
+    let data = Hashtbl.create 13 in
+    List.iter
+      (function
+        | `Ok e ->
+            List.iter
+              (fun (t, m) ->
+                 if m = `Error then ()
+                 else
+                   let m = Measure.to_float m in
+                   try Hashtbl.replace data t @@ m::(Hashtbl.find data t)
+                   with Not_found -> Hashtbl.add data t [m])
+              e.Execution.data
+        | _ -> ()
+      )
+      r.Result.execs;
+
+    let data =
+      Hashtbl.fold
+        (fun k v a ->
+           let mean, variance = Statistics.mean_variance v in
+           (k, { mean; stddev = sqrt variance })::a
+        )
+        data []
+    in
+    { name = r.Result.src.Benchmark.name;
+      context_id = r.Result.context_id;
+      data;
+    }
 end
 
 module Process = struct

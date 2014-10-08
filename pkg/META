@@ -1,19 +1,8 @@
 version = "0.1"
 description = "Macrobenchmark tools"
-requires = "sexplib"
+requires = "sexplib perf re.pcre xdg-basedir"
 archive(byte) = "macroperf.cma"
 archive(byte, plugin) = "macroperf.cma"
 archive(native) = "macroperf.cmxa"
 archive(native, plugin) = "macroperf.cmxs"
 exists_if = "macroperf.cma"
-
-package "lwt" (
- version = "0.1"
- description = "Macrobenchmark tools using Lwt"
- requires = "lwt.unix, re.pcre"
- archive(byte) = "macroperf_lwt.cma"
- archive(byte, plugin) = "macroperf_lwt.cma"
- archive(native) = "macroperf_lwt.cmxa"
- archive(native, plugin) = "macroperf_lwt.cmxs"
- exists_if = "macroperf.cma"
-)

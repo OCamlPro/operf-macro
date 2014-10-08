@@ -5,46 +5,23 @@ type copts = {
   ignore_out: [`Stdout | `Stderr] list;
 }
 
-let with_oc_safe f file =
-  let oc = open_out file in
-  try
-    f oc;
-    close_out oc
-  with exn ->
-    close_out oc;
-    raise exn
-
-let with_oc_of_copts f = function
-  | {output_file=""; _} -> f stdout
-  | {output_file;_} -> with_oc_safe f output_file
-
 let write_res ?(strip=[]) ?file res =
   let res = List.fold_left (fun a s -> Result.strip s a) res strip in
-  let res_string = Result.to_string res in
 
   (* Write the result into stdout, or <file> if specified *)
   (match file with
-   | None -> Printf.printf "%s\n" res_string;
-   | Some fn ->
-       with_oc_safe (fun oc -> Printf.fprintf oc "%s\n" res_string) fn);
+   | None -> Sexplib.Sexp.output_hum stdout @@ Result.sexp_of_t res
+   | Some fn -> Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res);
 
   (* Write the result in cache too if cache exists *)
   let rex = Re_pcre.regexp " " in
   let name = res.Result.src.Benchmark.name |> String.trim in
   let name = Re_pcre.substitute ~rex ~subst:(fun _ -> "_") name in
   try
-    let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () in
-    let res_file = cache_dir ^ "/operf/macro/" ^ name
-                   ^ "/" ^ res.Result.context_id ^ ".result" in
+    let res_file =
+      Util.FS.(cache_dir / "operf" / "macro" / name / res.Result.context_id ^ ".result") in
     XDGBaseDir.mkdir_openfile
-      (fun fn -> let oc = open_out fn in
-        try
-          Printf.fprintf oc "%s\n" res_string;
-          close_out oc
-        with exn ->
-          close_out oc;
-          raise exn
-      ) res_file
+      (fun fn -> Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res) res_file
   with Not_found -> ()
 
 let write_res_copts copts res = match copts with
@@ -70,9 +47,7 @@ let make_bench_and_run copts cmd bench_out topics =
   (match bench_out with
   | None -> ()
   | Some benchfile ->
-      let oc = open_out benchfile in
-      Printf.fprintf oc "%s" (Benchmark.to_string bench);
-      close_out oc);
+      Sexplib.Sexp.save_hum benchfile @@ Benchmark.sexp_of_t bench);
 
   (* Run the benchmark *)
   let res = Runner.run_exn bench in
@@ -121,21 +96,13 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let ls dirname =
-  let dh = Unix.opendir dirname in
-  let rec loop acc =
-    match Unix.readdir dh with
-    | name -> loop (name::acc)
-    | exception End_of_file -> acc
-  in loop []
-
 let run copts switch selectors =
   let share = Util.Opam.share ?switch () in
 
   (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
   let selectors = match selectors with
     | [] ->
-        let names = ls share in
+        let names = Util.FS.ls share in
         let names = List.map (fun n -> Filename.concat share n) names in
         List.filter (fun n -> kind_of_file n = `Directory)
           names
@@ -145,8 +112,7 @@ let run copts switch selectors =
      a directory, run all benchmarks in the directory *)
   let rec run_inner selector =
     let run_bench filename =
-      let bench_str = Util.File.string_of_file filename in
-      let b = Benchmark.of_string bench_str in
+      let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
       Printf.printf "Running benchmark %s...%!" b.Benchmark.name;
       let res = Runner.run_exn b in
       Printf.printf " done.\n%!"; res
@@ -164,7 +130,7 @@ let run copts switch selectors =
         [] (* Do nothing if not file or directory *)
     | `Directory ->
         (* Get a list of .bench files in the directory and run them *)
-        ls selector
+        Util.FS.ls selector
         |> List.map (Filename.concat selector)
         |> List.filter is_benchmark_file
         |> List.map run_bench
@@ -190,15 +156,59 @@ let help copts man_format cmds topic = match topic with
 
 let list switch =
   let share = Util.Opam.share ?switch () in
-  ls share
+  Util.FS.ls share
   |> List.map (fun n -> Filename.concat share n)
   |> List.filter (fun n -> kind_of_file n = `Directory)
   |> List.iter
     (fun selector ->
-       ls selector
+       Util.FS.ls selector
        |> List.map (Filename.concat selector)
        |> List.filter is_benchmark_file
        |> List.iter (fun s -> Format.printf "%s@." s))
+
+(* [selectors] are bench _names_ *)
+let summarize copts selectors =
+  let data = Hashtbl.create 13 in
+
+  let selectors = match selectors with
+    | [] -> [Util.FS.cache_dir]
+    | s -> s
+  in
+  let rec inner selector =
+    match kind_of_file selector with
+    | `File ->
+        (* Import the data contained in the file if it is a result
+           file *)
+        if Filename.check_suffix selector ".result" then
+          let s =
+            try
+              Util.File.sexp_of_file_exn
+                (Filename.chop_extension selector ^ ".summary")
+                Summary.t_of_sexp
+            with _ ->
+              (* Summary file not found, we need to create it *)
+              let result = Util.File.sexp_of_file_exn selector
+                  Result.t_of_sexp in
+              let summary = Summary.of_result result in
+              Summary.sexp_of_t summary
+              |> Sexplib.Sexp.save_hum
+                (Filename.chop_extension selector ^ ".summary");
+              summary
+          in
+          Hashtbl.add data (s.Summary.name, s.Summary.context_id) s
+    | `Directory ->
+        (* Run inner on each file or directory inside <> ., .. *)
+        Util.FS.ls selector
+        |> List.filter (fun s -> s <> "." && s <> "..")
+        |> List.map (fun s -> Util.FS.(selector / s))
+        |> List.iter inner
+    | _ -> ()
+  in
+  List.iter inner selectors;
+  match copts.output_file with
+  | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.sexp_of_all data
+  | fn -> Sexplib.Sexp.save_hum fn @@ Summary.sexp_of_all data
+
 
 open Cmdliner
 
@@ -317,7 +327,8 @@ let run_cmd =
     let doc = "If the argument correspond to a filename, the benchmark \
                is executed from this file, otherwise \
                the argument is treated as an OPAM package. \
-               If missing, all OPAM benchmarks installed in the current switch are executed." in
+               If missing, all OPAM benchmarks installed in \
+               the current switch are executed." in
     Arg.(value & pos_all string [] & info [] ~docv:"<file|package>" ~doc)
   in
   let doc = "Run macrobenchmarks from files." in
@@ -337,7 +348,24 @@ let list_cmd =
   Term.(pure list $ switch),
   Term.info "list" ~doc ~man
 
-let cmds = [help_cmd; run_cmd; list_cmd; perf_cmd; libperf_cmd; time_cmd]
+let summarize_cmd =
+  let selector =
+    let doc = "If the argument correspond to a file, it is taken \
+               as a .result file, otherwise the argument is treated as \
+               a benchmark name. \
+               If missing, all results of previously ran benchmarks are used." in
+    Arg.(value & pos_all string [] & info [] ~docv:"<file|name>" ~doc)
+  in
+  let doc = "Produce a summary of the result of the desired benchmarks." in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
+  in
+  Term.(pure summarize $ copts_t $ selector),
+  Term.info "summarize" ~doc ~man
+
+let cmds = [help_cmd; run_cmd; summarize_cmd;
+            list_cmd; perf_cmd; libperf_cmd; time_cmd]
 
 let () = match Term.eval_choice ~catch:false default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0

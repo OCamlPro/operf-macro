@@ -1,9 +1,24 @@
+module type SEXPABLE = sig
+  type t
+  val t_of_sexp : Sexplib.Type.t -> t
+  val sexp_of_t : t -> Sexplib.Type.t
+end
+
 module Util : sig
+  module FS : sig
+    val (/) : string -> string -> string
+    val home : string
+    val cache_dir : string
+    val ls : string -> string list
+  end
+
   module File : sig
     val string_of_ic : in_channel -> string
     val lines_of_ic : in_channel -> string list
     val string_of_file : string -> string
+    val sexp_of_file_exn : string -> (Sexplib.Type.t -> 'a) -> 'a
     val lines_of_file : string -> string list
+    val write_string_to_file: fn:string -> string -> unit
   end
 
   module Cmd : sig
@@ -104,6 +119,8 @@ module Benchmark : sig
     (** Set of quantities to measure *)
   }
 
+  include SEXPABLE with type t := t
+
   val make :
     name:string ->
     ?descr:string ->
@@ -115,9 +132,6 @@ module Benchmark : sig
     topics:Topic.t list ->
     unit ->
     t
-
-  val of_string : string -> t
-  val to_string : t -> string
 end
 
 module Result : sig
@@ -137,8 +151,8 @@ module Result : sig
       same benchmark,if requested measures cannot be performed in one
       go. *)
 
-  val of_string : string -> t
-  val to_string : t -> string
+
+  include SEXPABLE with type t := t
 
   val make :
     src:Benchmark.t ->
@@ -149,6 +163,25 @@ module Result : sig
   val strip : [`Stdout | `Stderr] -> t -> t
   (** [strip t chan is a result where the output of the program
       executions in [chan] have been disabled. *)
+end
+
+module Summary : sig
+
+  type aggr = { mean: float; stddev: float }
+
+  type t = {
+    name: string;
+    context_id: string;
+    data: (Topic.t * aggr) list;
+  }
+
+  type all = ((string * string), t) Hashtbl.t
+  val sexp_of_all : all -> Sexplib.Type.t
+  val all_of_sexp : Sexplib.Type.t -> all
+
+  include SEXPABLE with type t := t
+
+  val of_result : Result.t -> t
 end
 
 module Runner : sig
