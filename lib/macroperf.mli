@@ -194,9 +194,9 @@ module Summary : sig
     data: (Topic.t * aggr) list;
   }
 
-  type all = ((string * string), t) Hashtbl.t
-  val sexp_of_all : all -> Sexplib.Type.t
-  val all_of_sexp : Sexplib.Type.t -> all
+  type db = (string * (string * (Topic.t * aggr) list) list) list
+  val sexp_of_db : db -> Sexplib.Type.t
+  val db_of_sexp : Sexplib.Type.t -> db
 
   include SEXPABLE with type t := t
 

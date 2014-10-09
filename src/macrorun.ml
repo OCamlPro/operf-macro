@@ -168,7 +168,7 @@ let list switch =
        |> List.iter (fun s -> Format.printf "%s@." s))
 
 (* [selectors] are bench _names_ *)
-let summarize copts selectors =
+let summarize copts evts selectors =
   let data = Hashtbl.create 13 in
 
   let selectors = match selectors with
@@ -196,7 +196,11 @@ let summarize copts selectors =
                 (Filename.chop_extension selector ^ ".summary");
               summary
           in
-          Hashtbl.add data (s.Summary.name, s.Summary.context_id) s
+          (try
+            let ctxs = Hashtbl.find data s.Summary.name in
+            Hashtbl.(Summary.(replace data s.name ((s.context_id, s.data)::ctxs)))
+          with Not_found ->
+            Hashtbl.(Summary.(add data s.name [s.context_id, s.data])))
     | `Directory ->
         (* Run inner on each file or directory inside <> ., .. *)
         Util.FS.ls selector
@@ -206,9 +210,10 @@ let summarize copts selectors =
     | _ -> ()
   in
   List.iter inner selectors;
+  let data = Hashtbl.fold (fun k v a -> (k, v)::a) data [] in
   match copts.output_file with
-  | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.sexp_of_all data
-  | fn -> Sexplib.Sexp.save_hum fn @@ Summary.sexp_of_all data
+  | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.sexp_of_db data
+  | fn -> Sexplib.Sexp.save_hum fn @@ Summary.sexp_of_db data
 
 
 open Cmdliner
@@ -323,6 +328,9 @@ let list_cmd =
   Term.info "list" ~doc ~man
 
 let summarize_cmd =
+  let evts =
+    let doc = "Select the topic to summarize." in
+    Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"<perf-events>|time" ~doc) in
   let selector =
     let doc = "If the argument correspond to a file, it is taken \
                as a .result file, otherwise the argument is treated as \
@@ -335,7 +343,7 @@ let summarize_cmd =
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ selector),
+  Term.(pure summarize $ copts_t $ evts $ selector),
   Term.info "summarize" ~doc ~man
 
 let cmds = [help_cmd; run_cmd; summarize_cmd;
