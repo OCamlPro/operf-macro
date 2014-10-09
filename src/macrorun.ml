@@ -78,10 +78,6 @@ let libperf copts cmd evts bench_out =
   in
   make_bench_and_run copts cmd bench_out evts
 
-let time copts cmd bench_out =
-  make_bench_and_run copts cmd bench_out
-    Topic.[Topic (`Real, Time); Topic (`User, Time); Topic (`Sys, Time)]
-
 let kind_of_file filename =
   let open Unix in
   try
@@ -302,22 +298,6 @@ let libperf_cmd =
   Term.(pure libperf $ copts_t $ cmd $ evts $ bench_out),
   Term.info "libperf" ~doc ~sdocs:copts_sect ~man
 
-let time_cmd =
-  let bench_out =
-    let doc = "Export the generated bench to file." in
-    Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc) in
-  let cmd =
-    let doc = "Any command you can specify in a shell." in
-    Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
-  in
-  let doc = "Macrobenchmark measuring time." in
-  let man = [
-    `S "DESCRIPTION";
-    `P "Macrobenchmark measuring time."] @ help_secs
-  in
-  Term.(pure time $ copts_t $ cmd $ bench_out),
-  Term.info "time" ~doc ~sdocs:copts_sect ~man
-
 let switch =
   let doc = "Use the provided OPAM switch instead of using OPAM's current one." in
   Arg.(value & opt (some string) None & info ["switch"] ~docv:"OPAM switch name" ~doc)
@@ -365,7 +345,7 @@ let summarize_cmd =
   Term.info "summarize" ~doc ~man
 
 let cmds = [help_cmd; run_cmd; summarize_cmd;
-            list_cmd; perf_cmd; libperf_cmd; time_cmd]
+            list_cmd; perf_cmd; libperf_cmd]
 
 let () = match Term.eval_choice ~catch:false default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0
