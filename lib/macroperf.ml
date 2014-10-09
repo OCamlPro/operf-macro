@@ -35,7 +35,17 @@ module Util = struct
   end
 
   module File = struct
-    let string_of_ic ic = really_input_string ic @@ in_channel_length ic
+    let string_of_ic ic =
+      let buf = Buffer.create 4096 in
+      let buf_str = Bytes.create 4096 in
+      let rec drain () =
+        let nb_read = input ic buf_str 0 4096 in
+        if nb_read > 0 then
+          (Buffer.add_subbytes buf buf_str 0 nb_read;
+           drain ())
+        else
+          Buffer.contents buf
+      in drain ()
 
     let lines_of_ic ic =
       let rec get_line acc = match input_line ic with
@@ -46,7 +56,8 @@ module Util = struct
     let string_of_file filename =
       let ic = open_in filename in
       try
-        let res = string_of_ic ic in close_in ic; res
+        let res = really_input_string ic @@ in_channel_length ic
+        in close_in ic; res
       with exn ->
         close_in ic; raise exn
 

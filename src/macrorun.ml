@@ -258,18 +258,18 @@ let default_cmd =
   Term.(ret (pure (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "macrorun" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
-let perf_cmd =
-  let bench_out =
-    let doc = "Export the generated bench to file." in
-    Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc) in
-  let cmd =
-    let doc = "Any command you can specify in a shell." in
-    Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
-  in
-  let evts =
-    let doc = "Same as the -e argument of PERF-STAT(1)." in
-    Arg.(value & opt string "" & info ["e"; "event"] ~docv:"perf-events" ~doc) in
+(* Common arguments to perf_cmd, libperf_cmd *)
+let bench_out =
+  let doc = "Export the generated bench to file." in
+  Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc)
+let cmd =
+  let doc = "Any command you can specify in a shell." in
+  Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
+let evts =
+  let doc = "Same as the -e argument of PERF-STAT(1)." in
+  Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"perf-events" ~doc)
 
+let perf_cmd =
   let doc = "Macrobenchmark using PERF-STAT(1) (Linux only)." in
   let man = [
     `S "DESCRIPTION";
@@ -279,17 +279,6 @@ let perf_cmd =
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
 let libperf_cmd =
-  let bench_out =
-    let doc = "Export the generated bench to file." in
-    Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc) in
-  let cmd =
-    let doc = "Any command you can specify in a shell." in
-    Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
-  in
-  let evts =
-    let doc = "Same as the -e argument of PERF-STAT(1)." in
-    Arg.(value & opt string "" & info ["e"; "event"] ~docv:"perf-events" ~doc) in
-
   let doc = "Macrobenchmark using the ocaml-perf library." in
   let man = [
     `S "DESCRIPTION";
