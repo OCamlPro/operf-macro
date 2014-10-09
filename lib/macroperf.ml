@@ -409,8 +409,8 @@ module Process = struct
     List.map
       (fun s ->
          let i = String.index s ':' in
-         let gc = Topic.gc_of_string_exn @@ String.sub s 0 (i-1) in
-         let v = Int64.of_string @@ String.sub s (i+1) (String.length s - i - 1) in
+         let gc = Topic.gc_of_string_exn @@ String.sub s 0 i in
+         let v = Int64.of_string @@ String.sub s (i+2) (String.length s - i - 2) in
          (Topic.(Topic (gc, Gc), Measure.of_int64 v))
       )
       lines
@@ -457,7 +457,9 @@ module Perf_wrapper = struct
                            "Ignoring perf result line [%s]" (String.concat "," l);
                          acc
                   )
-                  ((try data_of_gc_stats () with _ -> []) @
+                  ((match Sys.file_exists "gc_stats" with
+                      | false -> []
+                      | true -> data_of_gc_stats ()) @
                    [Topic.(Topic (`Real, Time), `Int Int64.(rem time_end time_start))])
                   stderr_lines);
           checked=(match chk_cmd with
@@ -488,7 +490,9 @@ module Libperf_wrapper = struct
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
         let data = (Topic.(Topic ((`Real, Time))), `Int duration)::data in
-        let data = try data @ data_of_gc_stats () with _ -> data in
+        let data = data @ (match Sys.file_exists "gc_stats" with
+            | false -> []
+            | true -> data_of_gc_stats ()) in
         let checked = match chk_cmd with
           | None -> None
           | Some chk -> (match Sys.command (String.concat " " chk) with
