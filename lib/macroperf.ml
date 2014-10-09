@@ -19,6 +19,19 @@ module Util = struct
         | name -> loop (name::acc)
         | exception End_of_file -> acc
       in loop []
+
+    let with_ls dirname f =
+      let files = ls dirname in
+      List.iter f @@ List.filter (fun f -> f <> "." && f <> "..") files
+
+    let rm_rf n =
+      let rec rm_rf acc n =
+        let open Unix in
+        let stats = stat n in
+        match stats.st_kind with
+        | S_DIR -> with_ls n (fun c -> rm_rf (n::acc) (n / c))
+        | _ -> unlink n; List.iter (fun d -> try rmdir d with _ -> ()) acc
+      in rm_rf [] n
   end
 
   module File = struct
@@ -490,11 +503,11 @@ module Runner = struct
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
-    let temp_dir = Filename.temp_file "macroperf" "" in
+    let temp_dir = Filename.temp_file "macrorun" "" in
     Unix.unlink temp_dir;
-    (try
-       Unix.mkdir temp_dir 0o755
-     with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+    Unix.(try
+       mkdir temp_dir 0o755
+     with Unix_error (EEXIST, _, _) -> ());
     Unix.chdir temp_dir;
 
     let env = match b.env with
@@ -529,6 +542,10 @@ module Runner = struct
     in
 
     let execs = run_execs execs b in
+
+    (* Cleanup temporary directory *)
+    Unix.chdir "..";
+    Util.FS.rm_rf temp_dir;
     Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
 
   let run b =
