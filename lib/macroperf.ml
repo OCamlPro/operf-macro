@@ -376,7 +376,6 @@ module Process = struct
             ) acc in
         match Statistics.enough_samples ~probability ~confidence durations with
         | true ->
-            Printf.printf " %d times... " nb_iter;
             acc
         | false ->
             let exec = f () in

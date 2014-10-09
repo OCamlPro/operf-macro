@@ -115,7 +115,8 @@ let run copts switch selectors =
       let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
       Printf.printf "Running benchmark %s...%!" b.Benchmark.name;
       let res = Runner.run_exn b in
-      Printf.printf " done.\n%!"; res
+      Printf.printf " %d times.\n%!" (List.length res.Result.execs);
+      res
     in
     match kind_of_file selector with
     | `Noent ->
