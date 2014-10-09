@@ -11,7 +11,11 @@ let write_res ?(strip=[]) ?file res =
   (* Write the result into stdout, or <file> if specified *)
   (match file with
    | None -> Sexplib.Sexp.output_hum stdout @@ Result.sexp_of_t res
-   | Some fn -> Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res);
+   | Some fn ->
+       try Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res
+       with Sys_error _ -> ()
+         (* Sexplib cannot create temporary file, aborting*)
+  );
 
   (* Write the result in cache too if cache exists *)
   let rex = Re_pcre.regexp " " in
@@ -19,7 +23,7 @@ let write_res ?(strip=[]) ?file res =
   let name = Re_pcre.substitute ~rex ~subst:(fun _ -> "_") name in
   try
     let res_file =
-      Util.FS.(cache_dir / "operf" / "macro" / name / res.Result.context_id ^ ".result") in
+      Util.FS.(cache_dir / name / res.Result.context_id ^ ".result") in
     XDGBaseDir.mkdir_openfile
       (fun fn -> Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res) res_file
   with Not_found -> ()
@@ -113,34 +117,28 @@ let run copts switch selectors =
   let rec run_inner selector =
     let run_bench filename =
       let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
-      Printf.printf "Running benchmark %s...%!" b.Benchmark.name;
       let res = Runner.run_exn b in
-      Printf.printf " %d times.\n%!" (List.length res.Result.execs);
-      res
+      write_res_copts copts res
     in
     match kind_of_file selector with
     | `Noent ->
         (* Not found, but can be an OPAM package name... *)
         (match kind_of_file Filename.(concat share selector) with
          | `Noent | `File | `Other_kind ->
-             Printf.eprintf "Warning: %s is not an OPAM package.\n" selector;
-             []
+             Printf.eprintf "Warning: %s is not an OPAM package.\n" selector
          | `Directory -> run_inner Filename.(concat share selector))
     | `Other_kind ->
-        Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector;
-        [] (* Do nothing if not file or directory *)
+        Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector
     | `Directory ->
         (* Get a list of .bench files in the directory and run them *)
         Util.FS.ls selector
         |> List.map (Filename.concat selector)
         |> List.filter is_benchmark_file
-        |> List.map run_bench
+        |> List.iter run_bench
     | `File ->
-        List.map run_bench [selector]
+        List.iter run_bench [selector]
   in
-  let res = List.map run_inner selectors in
-  let res = List.flatten res in
-  List.iter (write_res_copts copts) res
+  List.iter run_inner selectors
 
 let help copts man_format cmds topic = match topic with
   | None -> `Help (`Pager, None) (* help about the program. *)
@@ -169,38 +167,61 @@ let list switch =
 
 (* [selectors] are bench _names_ *)
 let summarize copts evts selectors =
+  let evts = let rex = Re_pcre.regexp "," in Re_pcre.split ~rex evts in
+  let evts = List.map Topic.of_string evts in
   let data = Hashtbl.create 13 in
 
   let selectors = match selectors with
     | [] -> [Util.FS.cache_dir]
-    | s -> s
+    | ss -> List.fold_left
+              (fun a s -> try
+                  if Sys.is_directory s
+                  then s::a (* selector is a directory, looking for content *)
+                  else a (* selector is a file, do nothing *)
+                with Sys_error _ ->
+                  (* Not a file nor a dir: benchmark name *)
+                  (try
+                     if Sys.is_directory Util.FS.(cache_dir / s) then
+                       Util.FS.(cache_dir / s)::a
+                     else a
+                   with Sys_error _ -> a)
+              )
+              [] ss
   in
   let rec inner selector =
+    let create_summary_file () =
+      (* Summary file not found, we need to create it *)
+      let result = Util.File.sexp_of_file_exn selector
+          Result.t_of_sexp in
+      let summary = Summary.of_result result in
+      Summary.sexp_of_t summary
+      |> Sexplib.Sexp.save_hum
+        (Filename.chop_extension selector ^ ".summary");
+      summary
+    in
     match kind_of_file selector with
-    | `File ->
+    | `File when Filename.check_suffix selector ".result" ->
         (* Import the data contained in the file if it is a result
            file *)
-        if Filename.check_suffix selector ".result" then
-          let s =
+        let summary_fn = (Filename.chop_extension selector ^ ".summary") in
+        let s =
+          if Sys.file_exists summary_fn &&
+             Unix.((stat summary_fn).st_mtime > (stat selector).st_mtime)
+          then
             try
               Util.File.sexp_of_file_exn
                 (Filename.chop_extension selector ^ ".summary")
                 Summary.t_of_sexp
-            with _ ->
-              (* Summary file not found, we need to create it *)
-              let result = Util.File.sexp_of_file_exn selector
-                  Result.t_of_sexp in
-              let summary = Summary.of_result result in
-              Summary.sexp_of_t summary
-              |> Sexplib.Sexp.save_hum
-                (Filename.chop_extension selector ^ ".summary");
-              summary
-          in
-          (try
-            let ctxs = Hashtbl.find data s.Summary.name in
-            Hashtbl.(Summary.(replace data s.name ((s.context_id, s.data)::ctxs)))
-          with Not_found ->
-            Hashtbl.(Summary.(add data s.name [s.context_id, s.data])))
+            with Sys_error _ -> create_summary_file ()
+          else
+            create_summary_file ()
+        in
+        let s_data = List.filter (fun (t, _) -> List.mem t evts) s.Summary.data in
+        (try
+           let ctxs = Hashtbl.find data s.Summary.name in
+           Hashtbl.(Summary.(replace data s.name ((s.context_id, s_data)::ctxs)))
+         with Not_found ->
+           Hashtbl.(Summary.(add data s.name [s.context_id, s_data])))
     | `Directory ->
         (* Run inner on each file or directory inside <> ., .. *)
         Util.FS.ls selector
@@ -329,8 +350,8 @@ let list_cmd =
 
 let summarize_cmd =
   let evts =
-    let doc = "Select the topic to summarize." in
-    Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"<perf-events>|time" ~doc) in
+    let doc = "Select the topic to summarize. This command understand gc stats, perf events, times..." in
+    Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"evts" ~doc) in
   let selector =
     let doc = "If the argument correspond to a file, it is taken \
                as a .result file, otherwise the argument is treated as \

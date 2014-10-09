@@ -123,44 +123,72 @@ module Util = struct
 end
 
 module Topic = struct
-  type time = [ `Real | `User | `Sys ] with sexp
+  type time = Real | User | Sys with sexp
+  let time_of_string = function
+    | "real" -> Real
+    | "user" -> User
+    | "sys" -> Sys
+    | _ -> invalid_arg "time_of_string"
+
+  let string_of_time = function
+    | Real -> "real"
+    | User -> "user"
+    | Sys -> "sys"
+
   type gc =
-    [ `Minor_words
-    | `Promoted_words
-    | `Major_words
-    | `Minor_collections
-    | `Major_collections
-    | `Heap_words
-    | `Heap_chunks
-    | `Top_heap_words
-    | `Live_words
-    | `Live_blocks
-    | `Free_words
-    | `Free_blocks
-    | `Largest_free
-    | `Fragments
-    | `Compactions
-    ] with sexp
+    | Minor_words
+    | Promoted_words
+    | Major_words
+    | Minor_collections
+    | Major_collections
+    | Heap_words
+    | Heap_chunks
+    | Top_heap_words
+    | Live_words
+    | Live_blocks
+    | Free_words
+    | Free_blocks
+    | Largest_free
+    | Fragments
+    | Compactions
+  with sexp
 
   let gc_of_string_exn : string -> gc = function
-    | "minor_words"       -> `Minor_words
-    | "promoted_words"    -> `Promoted_words
-    | "major_words"       -> `Major_words
-    | "minor_collections" -> `Minor_collections
-    | "major_collections" -> `Major_collections
-    | "heap_words"        -> `Heap_words
-    | "heap_chunks"       -> `Heap_chunks
-    | "top_heap_words"    -> `Top_heap_words
-    | "live_words"        -> `Live_words
-    | "live_blocks"       -> `Live_blocks
-    | "free_words"        -> `Free_words
-    | "free_blocks"       -> `Free_blocks
-    | "largest_free"      -> `Largest_free
-    | "fragments"         -> `Fragments
-    | "compactions"       -> `Compactions
+    | "minor_words"       -> Minor_words
+    | "promoted_words"    -> Promoted_words
+    | "major_words"       -> Major_words
+    | "minor_collections" -> Minor_collections
+    | "major_collections" -> Major_collections
+    | "heap_words"        -> Heap_words
+    | "heap_chunks"       -> Heap_chunks
+    | "top_heap_words"    -> Top_heap_words
+    | "live_words"        -> Live_words
+    | "live_blocks"       -> Live_blocks
+    | "free_words"        -> Free_words
+    | "free_blocks"       -> Free_blocks
+    | "largest_free"      -> Largest_free
+    | "fragments"         -> Fragments
+    | "compactions"       -> Compactions
     | _ -> invalid_arg "gc_of_string_exn"
 
   let gc_of_string s = try Some (gc_of_string_exn s) with _ -> None
+
+  let string_of_gc = function
+    | Minor_words -> "minor_words"
+    | Promoted_words -> "promoted_words"
+    | Major_words -> "major_words"
+    | Minor_collections -> "minor_collections"
+    | Major_collections -> "major_collections"
+    | Heap_words -> "heap_words"
+    | Heap_chunks -> "heap_chunks"
+    | Top_heap_words -> "top_heap_words"
+    | Live_words -> "live_words"
+    | Live_blocks -> "live_blocks"
+    | Free_words -> "free_words"
+    | Free_blocks -> "free_blocks"
+    | Largest_free -> "largest_free"
+    | Fragments -> "fragments"
+    | Compactions -> "compactions"
 
   type _ kind =
     (* Time related *)
@@ -177,6 +205,30 @@ module Topic = struct
     | Perf : string kind
 
   type t = Topic : 'a * 'a kind -> t
+
+  let of_string s =
+    try Topic (gc_of_string_exn s, Gc)
+    with _ ->
+      try Topic (Perf.Attr.kind_of_sexp
+                   Sexplib.Sexp.(Atom (String.capitalize s)), Libperf)
+      with _ ->
+        (match s with
+         | "time_real" -> Topic (Real, Time)
+         | "time_sys" -> Topic (Sys, Time)
+         | "time_user" -> Topic (User, Time)
+         | _ -> invalid_arg "Topic.of_string"
+        )
+
+  let to_string t =
+    match t with
+    | Topic (t, Time) -> "time_" ^ string_of_time t
+    | Topic (gc, Gc) -> string_of_gc gc
+    | Topic (p, Perf) -> p
+    | Topic (lp, Libperf) ->
+        Sexplib.Sexp.(match Perf.Attr.sexp_of_kind lp with
+            | Atom s -> String.uncapitalize s
+            | _ -> invalid_arg "Topic.to_string"
+        )
 
   let sexp_of_t t =
     let open Sexplib.Sexp in
@@ -260,7 +312,7 @@ module Execution = struct
     List.filter (fun (t, m) -> t = kind) exec.data
 
   let duration exec =
-    List.hd (find Topic.(Topic (`Real, Time)) exec) |> snd |> Measure.to_int64
+    List.hd (find Topic.(Topic (Real, Time)) exec) |> snd |> Measure.to_int64
 end
 
 module Benchmark = struct
@@ -460,7 +512,7 @@ module Perf_wrapper = struct
                   ((match Sys.file_exists "gc_stats" with
                       | false -> []
                       | true -> data_of_gc_stats ()) @
-                   [Topic.(Topic (`Real, Time), `Int Int64.(rem time_end time_start))])
+                   [Topic.(Topic (Real, Time), `Int Int64.(rem time_end time_start))])
                   stderr_lines);
           checked=(match chk_cmd with
               | None -> None
@@ -489,7 +541,7 @@ module Libperf_wrapper = struct
     | `Ok {process_status; stdout; stderr; duration; data;} ->
         let data = List.map (fun (k, v) ->
             Topic.(Topic (k, Libperf)), `Int v) data in
-        let data = (Topic.(Topic ((`Real, Time))), `Int duration)::data in
+        let data = (Topic.(Topic ((Real, Time))), `Int duration)::data in
         let data = data @ (match Sys.file_exists "gc_stats" with
             | false -> []
             | true -> data_of_gc_stats ()) in

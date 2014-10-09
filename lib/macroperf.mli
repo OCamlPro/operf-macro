@@ -45,24 +45,23 @@ module Util : sig
 end
 
 module Topic : sig
-  type time = [ `Real | `User | `Sys ]
+  type time = Real | User | Sys
   type gc =
-    [ `Minor_words
-    | `Promoted_words
-    | `Major_words
-    | `Minor_collections
-    | `Major_collections
-    | `Heap_words
-    | `Heap_chunks
-    | `Top_heap_words
-    | `Live_words
-    | `Live_blocks
-    | `Free_words
-    | `Free_blocks
-    | `Largest_free
-    | `Fragments
-    | `Compactions
-    ]
+    Minor_words
+    | Promoted_words
+    | Major_words
+    | Minor_collections
+    | Major_collections
+    | Heap_words
+    | Heap_chunks
+    | Top_heap_words
+    | Live_words
+    | Live_blocks
+    | Free_words
+    | Free_blocks
+    | Largest_free
+    | Fragments
+    | Compactions
 
   val gc_of_string_exn : string -> gc
   val gc_of_string : string -> gc option
@@ -82,6 +81,9 @@ module Topic : sig
     | Perf : string kind
 
   type t =  Topic : 'a * 'a kind -> t
+
+  val of_string : string -> t
+  val to_string : t -> string
 end
 
 module Measure : sig
