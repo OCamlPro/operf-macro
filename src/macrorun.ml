@@ -32,6 +32,10 @@ let write_res_copts copts res = match copts with
 let make_bench_and_run copts cmd bench_out topics =
   (* Build the name of the benchmark from the command line, but
      replace " " by "_" *)
+  let cmd = Util.FS.(let hd = List.hd cmd in
+                     if Filename.is_relative hd
+                     then Unix.getcwd () / hd else hd)
+            :: (List.tl cmd) in
   let name = String.concat " " cmd in
   let name_uscore = String.concat "_" cmd in
   let bench =

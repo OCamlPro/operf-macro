@@ -555,7 +555,6 @@ module Runner = struct
     let execs = run_execs execs b in
 
     (* Cleanup temporary directory *)
-    Unix.chdir "..";
     Util.FS.rm_rf temp_dir;
     Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
 
