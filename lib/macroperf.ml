@@ -352,15 +352,23 @@ module Result = struct
 end
 
 module Summary = struct
-  type aggr = { mean: float; stddev: float } with sexp
+  module Aggr = struct
+    type t = { mean: float; stddev: float; mini: float; maxi: float } with sexp
+    let normalize ?divide_mean_by t =
+      let m = t.mean in
+      let mean = match divide_mean_by with
+        | None -> 1.
+        | Some v -> m /. v in
+      { mean; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
+  end
 
   type t = {
     name: string;
     context_id: string;
-    data: (Topic.t * aggr) list;
+    data: (Topic.t * Aggr.t) list;
   } with sexp
 
-  type db = (string * (string * (Topic.t * aggr) list) list) list with sexp
+  type db = (string * (string * (Topic.t * Aggr.t) list) list) list with sexp
 
   let of_result r =
     let data = Hashtbl.create 13 in
@@ -383,7 +391,10 @@ module Summary = struct
       Hashtbl.fold
         (fun k v a ->
            let mean, variance = Statistics.mean_variance v in
-           (k, { mean; stddev = sqrt variance })::a
+           let maxi, mini = List.fold_left
+               (fun (ma, mi) v -> max v ma, min v mi)
+               (min_float, max_float) v in
+           (k, Aggr.{ mean; stddev = sqrt variance; mini; maxi; })::a
         )
         data []
     in

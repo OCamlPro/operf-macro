@@ -166,7 +166,7 @@ let list switch =
        |> List.iter (fun s -> Format.printf "%s@." s))
 
 (* [selectors] are bench _names_ *)
-let summarize copts evts selectors =
+let summarize copts evts normalize selectors =
   let evts = let rex = Re_pcre.regexp "," in Re_pcre.split ~rex evts in
   let evts = List.map Topic.of_string evts in
   let data = Hashtbl.create 13 in
@@ -216,6 +216,7 @@ let summarize copts evts selectors =
           else
             create_summary_file ()
         in
+        (* Filter on user requested evts *)
         let s_data = List.filter (fun (t, _) -> List.mem t evts) s.Summary.data in
         (try
            let ctxs = Hashtbl.find data s.Summary.name in
@@ -232,10 +233,46 @@ let summarize copts evts selectors =
   in
   List.iter inner selectors;
   let data = Hashtbl.fold (fun k v a -> (k, v)::a) data [] in
+
+  (* Normalization *)
+  let normalize_bench ?context_id l =
+    let normalize_itself ?ht =
+      match ht with
+      | None ->
+          List.map
+            (fun (cid, ta) ->
+               cid, List.map (fun (t, a) ->
+                   let a = Summary.Aggr.normalize a in (t, a)) ta)
+      | Some ht ->
+          List.map
+            (fun (cid, ta) ->
+               cid, (List.map (fun (t, a) ->
+                   let a = Summary.Aggr.normalize
+                       ~divide_mean_by:(Hashtbl.find ht t) a
+                   in (t, a))) ta)
+    in
+    match context_id with
+    | None -> normalize_itself l (* Normalize with respect to itself *)
+    | Some cid ->
+        (* Normalize with respect to a compiler_id *)
+        (* This hashtbl contains normal value per topic *)
+        let ht = Hashtbl.create 13 in
+        let normal = List.assoc cid l in
+        let open Summary.Aggr in
+        List.iter (fun (t, {mean; _}) -> Hashtbl.add ht t mean) normal;
+        normalize_itself ~ht l
+  in
+  let data =
+  (match normalize with
+  | None -> data
+  | Some "" ->
+      List.map (fun (k, v) -> k, (normalize_bench v)) data
+  | Some context_id ->
+      List.map (fun (k, v) -> k, (normalize_bench ~context_id v)) data)
+  in
   match copts.output_file with
   | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.sexp_of_db data
   | fn -> Sexplib.Sexp.save_hum fn @@ Summary.sexp_of_db data
-
 
 open Cmdliner
 
@@ -350,8 +387,13 @@ let list_cmd =
 
 let summarize_cmd =
   let evts =
-    let doc = "Select the topic to summarize. This command understand gc stats, perf events, times..." in
+    let doc = "Select the topic to summarize. \
+This command understand gc stats, perf events, times..." in
     Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"evts" ~doc) in
+  let normalize =
+    let doc = "Normalize against the value of a context_id (compiler)." in
+    Arg.(value & opt ~vopt:(Some "") (some string) None &
+         info ["n"; "normalize"] ~docv:"context_id" ~doc) in
   let selector =
     let doc = "If the argument correspond to a file, it is taken \
                as a .result file, otherwise the argument is treated as \
@@ -364,7 +406,7 @@ let summarize_cmd =
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ evts $ selector),
+  Term.(pure summarize $ copts_t $ evts $ normalize $ selector),
   Term.info "summarize" ~doc ~man
 
 let cmds = [help_cmd; run_cmd; summarize_cmd;

@@ -188,15 +188,18 @@ end
 
 module Summary : sig
 
-  type aggr = { mean: float; stddev: float }
+  module Aggr : sig
+    type t = { mean: float; stddev: float; mini: float; maxi: float; }
+    val normalize : ?divide_mean_by:float -> t -> t
+  end
 
   type t = {
     name: string;
     context_id: string;
-    data: (Topic.t * aggr) list;
+    data: (Topic.t * Aggr.t) list;
   }
 
-  type db = (string * (string * (Topic.t * aggr) list) list) list
+  type db = (string * (string * (Topic.t * Aggr.t) list) list) list
   val sexp_of_db : db -> Sexplib.Type.t
   val db_of_sexp : Sexplib.Type.t -> db
 
