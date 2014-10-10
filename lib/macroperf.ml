@@ -368,7 +368,9 @@ module Summary = struct
     data: (Topic.t * Aggr.t) list;
   } with sexp
 
-  type db = (string * (string * (Topic.t * Aggr.t) list) list) list with sexp
+  module DB = struct
+    type t = (string * (string * (Topic.t * Aggr.t) list) list) list with sexp
+  end
 
   let of_result r =
     let data = Hashtbl.create 13 in

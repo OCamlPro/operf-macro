@@ -166,7 +166,7 @@ let list switch =
        |> List.iter (fun s -> Format.printf "%s@." s))
 
 (* [selectors] are bench _names_ *)
-let summarize copts evts normalize selectors =
+let summarize copts evts normalize csv selectors =
   let evts = let rex = Re_pcre.regexp "," in Re_pcre.split ~rex evts in
   let evts = List.map Topic.of_string evts in
   let data = Hashtbl.create 13 in
@@ -217,7 +217,9 @@ let summarize copts evts normalize selectors =
             create_summary_file ()
         in
         (* Filter on user requested evts *)
-        let s_data = List.filter (fun (t, _) -> List.mem t evts) s.Summary.data in
+        let s_data = match evts with
+          | [] -> s.Summary.data
+          | evts -> List.filter (fun (t, _) -> List.mem t evts) s.Summary.data in
         (try
            let ctxs = Hashtbl.find data s.Summary.name in
            Hashtbl.(Summary.(replace data s.name ((s.context_id, s_data)::ctxs)))
@@ -270,9 +272,15 @@ let summarize copts evts normalize selectors =
   | Some context_id ->
       List.map (fun (k, v) -> k, (normalize_bench ~context_id v)) data)
   in
-  match copts.output_file with
-  | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.sexp_of_db data
-  | fn -> Sexplib.Sexp.save_hum fn @@ Summary.sexp_of_db data
+
+  if csv then
+    match copts.output_file with
+    | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.DB.sexp_of_t data
+    | fn -> Sexplib.Sexp.save_hum fn @@ Summary.DB.sexp_of_t data
+  else
+    match copts.output_file with
+    | "" -> ()
+    | fn -> ()
 
 open Cmdliner
 
@@ -388,12 +396,15 @@ let list_cmd =
 let summarize_cmd =
   let evts =
     let doc = "Select the topic to summarize. \
-This command understand gc stats, perf events, times..." in
-    Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"evts" ~doc) in
+This command understand gc stats, perf events, times... (default: all topics)." in
+    Arg.(value & opt string "" & info ["e"; "event"] ~docv:"evts" ~doc) in
   let normalize =
     let doc = "Normalize against the value of a context_id (compiler)." in
     Arg.(value & opt ~vopt:(Some "") (some string) None &
          info ["n"; "normalize"] ~docv:"context_id" ~doc) in
+  let csv =
+    let doc = "Output in CSV format." in
+    Arg.(value & flag & info ["csv"] ~docv:"boolean" ~doc) in
   let selector =
     let doc = "If the argument correspond to a file, it is taken \
                as a .result file, otherwise the argument is treated as \
@@ -406,7 +417,7 @@ This command understand gc stats, perf events, times..." in
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ evts $ normalize $ selector),
+  Term.(pure summarize $ copts_t $ evts $ normalize $ csv $ selector),
   Term.info "summarize" ~doc ~man
 
 let cmds = [help_cmd; run_cmd; summarize_cmd;

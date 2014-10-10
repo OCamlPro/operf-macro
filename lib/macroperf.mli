@@ -86,34 +86,6 @@ module Topic : sig
   val to_string : t -> string
 end
 
-module Measure : sig
-  type t = [ `Int of int64 | `Float of float | `Error ]
-  (** Type of a measure. This is to discriminate between discrete
-      events (i.e. cpu cycles), continuous events (i.e. time) and
-      errors (the measurement operation failed). *)
-
-  val of_string : string -> t
-  (** [of string msr_string] is the measure resulting from the
-      cast of [msr_string]. *)
-end
-
-module Execution : sig
-  type exec = {
-    process_status: Unix.process_status;
-    stdout: string;
-    stderr: string;
-    data: (Topic.t * Measure.t) list;
-    checked: bool option;
-  }
-  (** Type representing the successful execution of a benchmark. *)
-
-  type t = [ `Ok of exec | `Timeout | `Error of string ]
-  (** Type representing the execution of a benchmark. *)
-
-  val error : exn -> t
-  (** [error exn] is `Error Printexc.(to_string exn) *)
-end
-
 module Benchmark : sig
   type speed = [`Fast | `Slow | `Slower]
 
@@ -155,6 +127,34 @@ module Benchmark : sig
     t
 end
 
+module Measure : sig
+  type t = [ `Int of int64 | `Float of float | `Error ]
+  (** Type of a measure. This is to discriminate between discrete
+      events (i.e. cpu cycles), continuous events (i.e. time) and
+      errors (the measurement operation failed). *)
+
+  val of_string : string -> t
+  (** [of string msr_string] is the measure resulting from the
+      cast of [msr_string]. *)
+end
+
+module Execution : sig
+  type exec = {
+    process_status: Unix.process_status;
+    stdout: string;
+    stderr: string;
+    data: (Topic.t * Measure.t) list;
+    checked: bool option;
+  }
+  (** Type representing the successful execution of a benchmark. *)
+
+  type t = [ `Ok of exec | `Timeout | `Error of string ]
+  (** Type representing the execution of a benchmark. *)
+
+  val error : exn -> t
+  (** [error exn] is `Error Printexc.(to_string exn) *)
+end
+
 module Result : sig
   type t = {
     src: Benchmark.t;
@@ -187,7 +187,6 @@ module Result : sig
 end
 
 module Summary : sig
-
   module Aggr : sig
     type t = { mean: float; stddev: float; mini: float; maxi: float; }
     val normalize : ?divide_mean_by:float -> t -> t
@@ -199,14 +198,19 @@ module Summary : sig
     data: (Topic.t * Aggr.t) list;
   }
 
-  type db = (string * (string * (Topic.t * Aggr.t) list) list) list
-  val sexp_of_db : db -> Sexplib.Type.t
-  val db_of_sexp : Sexplib.Type.t -> db
-
   include SEXPABLE with type t := t
 
   val of_result : Result.t -> t
+
+  (** Database of summaries *)
+  module DB : sig
+    type t = (string * (string * (Topic.t * Aggr.t) list) list) list
+    (** Indexed by benchmark, context_id, topic. *)
+
+    include SEXPABLE with type t := t
+  end
 end
+
 
 module Runner : sig
   val run_exn : Benchmark.t -> Result.t
