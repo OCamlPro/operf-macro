@@ -209,6 +209,8 @@ module Summary : sig
   module Aggr : sig
     type t = { mean: float; stddev: float; mini: float; maxi: float; }
 
+    include Sexpable.S with type t := t
+
     val of_measures : Measure.t list -> t
 
     val normalize : t -> t
@@ -220,19 +222,12 @@ module Summary : sig
         [b.mean]. *)
   end
 
-  module Data : sig
-    type t = Aggr.t TMap.t
-    include Sexpable.S with type t := t
-
-    val normalize : t -> t
-    val normalize2 : t -> t -> t
-  end
-
   type t = {
     name: string;
     context_id: string;
-    data: Data.t;
+    data: Aggr.t TMap.t;
   }
+  (** Content of a "summary file". *)
 
   include Sexpable.S with type t := t
 
@@ -242,20 +237,31 @@ end
 module DB : sig
   (** Database of summaries *)
 
-  type 'a t = ('a SMap.t) SMap.t
+  type 'a t = (('a TMap.t) SMap.t) SMap.t
   (** Indexed by benchmark, context_id, topic. *)
 
   include Sexpable.S1 with type 'a t := 'a t
 
   val empty : 'a t
 
-  val add : string -> string -> 'a -> 'a t -> 'a t
+  val add : SMap.key -> SMap.key -> TMap.key -> 'a -> 'a t -> 'a t
+  val add_tmap : SMap.key -> SMap.key -> 'a TMap.t -> 'a t -> 'a t
 
-  val map : ('a -> 'b) -> 'a t -> 'b t
+  val fold : (SMap.key -> SMap.key -> TMap.key -> 'a -> 'b -> 'b) ->
+    'a TMap.t SMap.t SMap.t -> 'b -> 'b
+end
 
-  val normalize : ?context_id:string -> Summary.Data.t t -> Summary.Data.t t
-  (** [normalize ~context_id db] is [db] where all the aggrs. are
-      normalized wrt. the [context_id] aggr. *)
+module DB2 : sig
+  (** Database of summaries, CSV oriented *)
+
+  type 'a t = (('a SMap.t) SMap.t) TMap.t
+  (** Indexed by topic, benchmark, context_id *)
+
+  include Sexpable.S1 with type 'a t := 'a t
+
+  val empty : 'a t
+  val add : TMap.key -> SMap.key -> SMap.key -> 'a -> 'a t -> 'a t
+  val normalize : ?context_id:string -> Summary.Aggr.t t -> Summary.Aggr.t t
 end
 
 

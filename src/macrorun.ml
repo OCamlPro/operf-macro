@@ -223,26 +223,28 @@ let summarize copts evts normalize csv selectors =
             | evts -> TMap.filter (fun t _ -> List.mem t evts) s.Summary.data in
 
           (* Add summary data to datastructure *)
-          Summary.(DB.add s.name s.context_id s_data acc)
+          Summary.(DB.add_tmap s.name s.context_id s_data acc)
         else
           acc
       ) acc fn
   in
   (* Create the DB *)
-  assert (List.length selectors > 0);
   let data = List.fold_left add_summary_to_db DB.empty selectors in
-  assert (data <> DB.empty);
+  let data = DB.fold
+      (fun bench context_id topic measure a ->
+         DB2.add topic bench context_id measure a
+      )
+      data DB2.empty in
   let data =
     (match normalize with
         | None -> data
-        | Some "" -> DB.normalize data
-        | Some context_id -> DB.normalize ~context_id data)
+        | Some "" -> DB2.normalize data
+        | Some context_id -> DB2.normalize ~context_id data)
   in
-  assert (data <> DB.empty);
   if not csv then
     match copts.output_file with
-    | "" -> Sexplib.Sexp.output_hum stdout @@ DB.sexp_of_t Summary.Data.sexp_of_t data
-    | fn -> Sexplib.Sexp.save_hum fn @@ DB.sexp_of_t Summary.Data.sexp_of_t data
+    | "" -> Sexplib.Sexp.output_hum stdout @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
+    | fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
   else
     match copts.output_file with
     | "" -> ()

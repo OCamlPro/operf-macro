@@ -429,20 +429,10 @@ module Summary = struct
     let normalize2 t1 t2 = { t1 with mean = t1.mean /. t2.mean }
   end
 
-  module Data = struct
-    type t = Aggr.t TMap.t with sexp
-
-    let normalize t = TMap.map Aggr.normalize t
-    let normalize2 t1 t2 =
-      TMap.mapi
-        (fun k v -> let a2 = TMap.find k t2 in Aggr.normalize2 v a2)
-        t1
-  end
-
   type t = {
     name: string;
     context_id: string;
-    data: Data.t;
+    data: Aggr.t TMap.t;
   } with sexp
 
   let of_result r =
@@ -459,34 +449,59 @@ module Summary = struct
 end
 
 module DB = struct
-  type 'a t = ('a SMap.t) SMap.t with sexp
+  type 'a t = (('a TMap.t) SMap.t) SMap.t with sexp
   (** Indexed by benchmark, context_id, topic. *)
 
   let empty = SMap.empty
 
-  let add bench context_id v t =
+  let add bench context_id topic measure t =
     let context_map = try SMap.find bench t with Not_found -> SMap.empty in
-    let context_map = SMap.add context_id v context_map in
+    let topic_map = try SMap.find context_id context_map with Not_found -> TMap.empty in
+    let topic_map = TMap.add topic measure topic_map in
+    let context_map = SMap.add context_id topic_map context_map in
+    SMap.add bench context_map t
+
+  let add_tmap bench context_id tmap t =
+    let context_map = try SMap.find bench t with Not_found -> SMap.empty in
+    let context_map = SMap.add context_id tmap context_map in
     SMap.add bench context_map t
 
   let map f t =
     SMap.map (fun v -> SMap.map (fun v -> f v) v) t
 
-  let normalize ?context_id t =
-    match context_id with
-    | None -> map Summary.Data.normalize t
-    | Some context_id ->
-        let normal_db : Summary.Data.t SMap.t =
-          SMap.map (fun v -> SMap.find context_id v) t in
-        SMap.mapi
-          (fun bench cidmap -> SMap.mapi
-              (fun cid data ->
-                 Summary.Data.normalize2 data @@ SMap.find bench normal_db)
-              cidmap
-          )
-          t
+  let fold f t a =
+    SMap.fold (fun k1 v a ->
+        SMap.fold (fun k2 v a ->
+            TMap.fold (fun k3 v a ->
+                f k1 k2 k3 v a)
+              v a)
+          v a)
+      t a
 end
 
+module DB2 = struct
+  type 'a t = (('a SMap.t) SMap.t) TMap.t with sexp
+  (** Indexed by topic, benchmark, context_id *)
+
+  let empty = TMap.empty
+
+  let add topic bench context_id measure t =
+    let bench_map = try TMap.find topic t with Not_found -> SMap.empty in
+    let cid_map = try SMap.find bench bench_map with Not_found -> SMap.empty in
+    let cid_map = SMap.add context_id measure cid_map in
+    let bench_map = SMap.add bench cid_map bench_map in
+    TMap.add topic bench_map t
+
+  let normalize ?context_id t =
+    let normalize_smap ?context_id smap =
+      match context_id with
+      | Some context_id ->
+          let normal_aggr = SMap.find context_id smap in
+          SMap.map (fun a -> Summary.Aggr.normalize2 a normal_aggr) smap
+      | None -> SMap.map Summary.Aggr.normalize smap
+    in
+    TMap.map (fun v -> SMap.map (fun v -> normalize_smap ?context_id v) v) t
+end
 
 module Process = struct
 
