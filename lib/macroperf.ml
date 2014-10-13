@@ -1,9 +1,18 @@
 open Sexplib.Std
 
-module type SEXPABLE = sig
-  type t
-  val t_of_sexp : Sexplib.Type.t -> t
-  val sexp_of_t : t -> Sexplib.Type.t
+module Sexpable = struct
+  module type S = sig
+    type t with sexp
+  end
+  module type S1 = sig
+    type 'a t with sexp
+  end
+  module type S2 = sig
+    type ('a, 'b) t with sexp
+  end
+  module type S3 = sig
+    type ('a, 'b, 'c) t with sexp
+  end
 end
 
 module Util = struct
@@ -12,26 +21,35 @@ module Util = struct
     let home = Unix.getenv "HOME"
     let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () / "operf" / "macro"
 
-    let ls dirname =
+    let ls ?(preserve_order=false) ?(prefix=false) dirname =
       let dh = Unix.opendir dirname in
       let rec loop acc =
         match Unix.readdir dh with
-        | name -> loop (name::acc)
-        | exception End_of_file -> acc
+        | n when n <> "." && n <> ".." ->
+            let n = if prefix then dirname / n else n in loop (n::acc)
+        | _ -> loop acc
+        | exception End_of_file ->
+            if preserve_order then List.rev acc else acc
       in loop []
 
-    let with_ls dirname f =
-      let files = ls dirname in
-      List.iter f @@ List.filter (fun f -> f <> "." && f <> "..") files
+    let rec iter f n =
+      let open Unix in
+      match (stat n).st_kind with
+      | S_DIR -> List.iter f @@ ls ~prefix:true n; f n
+      | _ -> f n
 
-    let rm_rf n =
-      let rec rm_rf acc n =
-        let open Unix in
-        let stats = stat n in
-        match stats.st_kind with
-        | S_DIR -> with_ls n (fun c -> rm_rf (n::acc) (n / c))
-        | _ -> unlink n; List.iter (fun d -> try rmdir d with _ -> ()) acc
-      in rm_rf [] n
+    let rec fold f acc n =
+      let open Unix in
+      match (stat n).st_kind with
+      | S_DIR -> f (List.fold_left (fold f) acc @@ ls ~prefix:true n) n
+      | _ -> f acc n
+
+    let rm_r n =
+      iter
+        Unix.(fun n -> match (stat n).st_kind with
+            | S_DIR -> rmdir n
+            | _ -> unlink n)
+        n
   end
 
   module File = struct
@@ -198,7 +216,7 @@ module Topic = struct
     | Gc : gc kind
 
     (* Use the ocaml-perf binding to perf_event_open(2). *)
-    | Libperf : Perf.Attr.kind kind
+    | Libperf : Perf.Attr.Kind.t kind
 
     (* Use the perf-stat(1) command (need the perf binary, linux
        only) *)
@@ -209,7 +227,7 @@ module Topic = struct
   let of_string s =
     try Topic (gc_of_string_exn s, Gc)
     with _ ->
-      try Topic (Perf.Attr.kind_of_sexp
+      try Topic (Perf.Attr.Kind.t_of_sexp
                    Sexplib.Sexp.(Atom (String.capitalize s)), Libperf)
       with _ ->
         (match s with
@@ -225,7 +243,7 @@ module Topic = struct
     | Topic (gc, Gc) -> string_of_gc gc
     | Topic (p, Perf) -> p
     | Topic (lp, Libperf) ->
-        Sexplib.Sexp.(match Perf.Attr.sexp_of_kind lp with
+        Sexplib.Sexp.(match Perf.Attr.Kind.sexp_of_t lp with
             | Atom s -> String.uncapitalize s
             | _ -> invalid_arg "Topic.to_string"
         )
@@ -235,7 +253,7 @@ module Topic = struct
     match t with
     | Topic (time, Time) -> List [Atom "Time"; sexp_of_time time]
     | Topic (gc, Gc) -> List [Atom "Gc"; sexp_of_gc gc]
-    | Topic (libperf, Libperf) -> List [Atom "Libperf"; Perf.Attr.sexp_of_kind libperf]
+    | Topic (libperf, Libperf) -> List [Atom "Libperf"; Perf.Attr.Kind.sexp_of_t libperf]
     | Topic (perf, Perf) -> List [Atom "Perf"; sexp_of_string perf]
 
   let t_of_sexp s =
@@ -243,11 +261,49 @@ module Topic = struct
     match s with
     | List [Atom "Time"; t] -> Topic (time_of_sexp t, Time)
     | List [Atom "Gc"; t] -> Topic (gc_of_sexp t, Gc)
-    | List [Atom "Libperf"; t] -> Topic (Perf.Attr.kind_of_sexp t, Libperf)
+    | List [Atom "Libperf"; t] -> Topic (Perf.Attr.Kind.t_of_sexp t, Libperf)
     | List [Atom "Perf"; t] -> Topic (string_of_sexp t, Perf)
     | _ -> invalid_arg "t_of_sexp"
 
   let compare = Pervasives.compare
+end
+
+module SMap = struct
+  include Map.Make(String)
+
+  let of_list l =
+    List.fold_left (fun a (k,v) -> add k v a) empty l
+
+  type 'a bindings = (string * 'a) list with sexp
+
+  let t_of_sexp sexp_of_elt s = bindings_of_sexp sexp_of_elt s |> of_list
+  let sexp_of_t sexp_of_elt t = sexp_of_bindings sexp_of_elt @@ bindings t
+end
+
+module TMap = struct
+  include Map.Make(Topic)
+
+  let key_of_sexp = Topic.t_of_sexp
+  let sexp_of_key = Topic.sexp_of_t
+
+  let of_list l =
+    List.fold_left (fun a (k,v) -> add k v a) empty l
+
+  type 'a bindings = (key * 'a) list with sexp
+
+  let t_of_sexp sexp_of_elt s = bindings_of_sexp sexp_of_elt s |> of_list
+  let sexp_of_t sexp_of_elt t = sexp_of_bindings sexp_of_elt @@ bindings t
+
+  let lmerge ts =
+    List.fold_left
+      (fun a t -> merge
+          (fun k v1 v2 -> match v1, v2 with
+             | None, Some v -> Some [v]
+             | Some aa, Some v -> Some (v::aa)
+             | _ -> invalid_arg "lmerge"
+          )
+          a t)
+      empty ts
 end
 
 module Measure = struct
@@ -292,7 +348,7 @@ module Execution = struct
     process_status: process_status;
     stdout: string;
     stderr: string;
-    data: (Topic.t * Measure.t) list;
+    data: Measure.t TMap.t;
     checked: bool option
   } with sexp
 
@@ -308,11 +364,13 @@ module Execution = struct
     | `Ok e, `Stdout -> `Ok { e with stdout="" }
     | `Ok e, `Stderr -> `Ok { e with stderr="" }
 
-  let find kind exec =
-    List.filter (fun (t, m) -> t = kind) exec.data
+  let find topic exec =
+    TMap.filter (fun t m -> t = topic) exec.data
 
-  let duration exec =
-    List.hd (find Topic.(Topic (Real, Time)) exec) |> snd |> Measure.to_int64
+  let duration = function
+    | `Ok e ->
+        TMap.find Topic.(Topic (Real, Time)) e.data |> Measure.to_int64
+    | _ -> 0L
 end
 
 module Benchmark = struct
@@ -354,57 +412,81 @@ end
 module Summary = struct
   module Aggr = struct
     type t = { mean: float; stddev: float; mini: float; maxi: float } with sexp
-    let normalize ?divide_mean_by t =
+
+    let of_measures m =
+      let measures_float = List.map Measure.to_float m in
+      let mean, variance = Statistics.mean_variance measures_float in
+      let maxi, mini = List.fold_left
+          (fun (ma, mi) v -> max v ma, min v mi)
+          (min_float, max_float) measures_float in
+      { mean; stddev = sqrt variance; mini; maxi; }
+
+    let normalize t =
       let m = t.mean in
-      let mean = match divide_mean_by with
-        | None -> 1.
-        | Some v -> m /. v in
-      { mean; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
+      { mean=1.; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
+
+    (* t1 / t2 *)
+    let normalize2 t1 t2 = { t1 with mean = t1.mean /. t2.mean }
+  end
+
+  module Data = struct
+    type t = Aggr.t TMap.t with sexp
+
+    let normalize t = TMap.map Aggr.normalize t
+    let normalize2 t1 t2 =
+      TMap.mapi
+        (fun k v -> let a2 = TMap.find k t2 in Aggr.normalize2 v a2)
+        t1
   end
 
   type t = {
     name: string;
     context_id: string;
-    data: (Topic.t * Aggr.t) list;
+    data: Data.t;
   } with sexp
 
-  module DB = struct
-    type t = (string * (string * (Topic.t * Aggr.t) list) list) list with sexp
-  end
-
   let of_result r =
-    let data = Hashtbl.create 13 in
-    List.iter
-      (function
-        | `Ok e ->
-            List.iter
-              (fun (t, m) ->
-                 if m = `Error then ()
-                 else
-                   let m = Measure.to_float m in
-                   try Hashtbl.replace data t @@ m::(Hashtbl.find data t)
-                   with Not_found -> Hashtbl.add data t [m])
-              e.Execution.data
-        | _ -> ()
-      )
-      r.Result.execs;
-
-    let data =
-      Hashtbl.fold
-        (fun k v a ->
-           let mean, variance = Statistics.mean_variance v in
-           let maxi, mini = List.fold_left
-               (fun (ma, mi) v -> max v ma, min v mi)
-               (min_float, max_float) v in
-           (k, Aggr.{ mean; stddev = sqrt variance; mini; maxi; })::a
-        )
-        data []
-    in
+    let open Execution in
+    let open Result in
+    let data = List.fold_left
+        (fun a e -> match e with | `Ok e -> e.data::a | _ -> a)
+        [] r.execs in
+    let data = data  |> TMap.lmerge |> TMap.map Aggr.of_measures in
     { name = r.Result.src.Benchmark.name;
       context_id = r.Result.context_id;
       data;
     }
 end
+
+module DB = struct
+  type 'a t = ('a SMap.t) SMap.t with sexp
+  (** Indexed by benchmark, context_id, topic. *)
+
+  let empty = SMap.empty
+
+  let add bench context_id v t =
+    let context_map = try SMap.find bench t with Not_found -> SMap.empty in
+    let context_map = SMap.add context_id v context_map in
+    SMap.add bench context_map t
+
+  let map f t =
+    SMap.map (fun v -> SMap.map (fun v -> f v) v) t
+
+  let normalize ?context_id t =
+    match context_id with
+    | None -> map Summary.Data.normalize t
+    | Some context_id ->
+        let normal_db : Summary.Data.t SMap.t =
+          SMap.map (fun v -> SMap.find context_id v) t in
+        SMap.mapi
+          (fun bench cidmap -> SMap.mapi
+              (fun cid data ->
+                 Summary.Data.normalize2 data @@ SMap.find bench normal_db)
+              cidmap
+          )
+          t
+end
+
 
 module Process = struct
 
@@ -430,15 +512,12 @@ module Process = struct
     confidence = 0.05;
   }
 
-  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) f =
+  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) (f : unit -> Execution.t) =
 
-    let run_until ~probability ~confidence init_acc =
-      let rec run_until (nb_iter, acc) =
-        let durations = List.map
-            (function
-              |`Ok e -> Execution.duration e |> Int64.to_float
-              | _ -> 0.
-            ) acc in
+    let run_until ~probability ~confidence (init_acc : Execution.t list) =
+      let rec run_until (nb_iter, (acc : Execution.t list)) =
+        let durations =
+          List.map (fun e -> Execution.duration e |> Int64.to_float) acc in
         match Statistics.enough_samples ~probability ~confidence durations with
         | true ->
             acc
@@ -452,7 +531,7 @@ module Process = struct
     (* Remove the OCAML_GC_STATS env variable. *)
     Unix.putenv "OCAML_GC_STATS" "";
     match exec with
-    | `Ok e ->
+    | `Ok _ as e ->
         let duration = Execution.duration e in
         (match duration with
         | t when t < fast.max_duration -> (* Fast *)
@@ -508,25 +587,29 @@ module Perf_wrapper = struct
       let time_end = Oclock.(gettime monotonic) in
       let rex = Re.(str "," |> compile) in
       let stderr_lines = List.map (Re_pcre.split ~rex) stderr_lines in
+      let gc_topics = (match Sys.file_exists "gc_stats" with
+          | false -> []
+          | true -> data_of_gc_stats ()) in
+      let time_topics = [Topic.(Topic (Real, Time),
+                                `Int Int64.(rem time_end time_start))] in
+      let data = List.fold_left
+          (fun acc l -> match l with
+             | [v; ""; event; ]
+             | [v; ""; event; _] ->
+                 TMap.add Topic.(Topic (event, Perf)) (Measure.of_string v) acc
+             | l ->
+                 Printf.printf
+                   "Ignoring perf result line [%s]" (String.concat "," l);
+                 acc
+          ) TMap.empty stderr_lines in
+      let data = List.fold_left (fun a (k, v) -> TMap.add k v a) data gc_topics in
+      let data = List.fold_left (fun a (k, v) -> TMap.add k v a) data time_topics in
+
       `Ok Execution.{
           process_status;
           stdout=stdout_string;
           stderr=""; (* Perf writes its result on stderr... *)
-          data=(List.fold_left
-                  (fun acc l -> match l with
-                     | [v;"";event; ]
-                     | [v;"";event; _] ->
-                         (Topic.(Topic (event, Perf)), Measure.of_string v)::acc
-                     | l ->
-                         Printf.printf
-                           "Ignoring perf result line [%s]" (String.concat "," l);
-                         acc
-                  )
-                  ((match Sys.file_exists "gc_stats" with
-                      | false -> []
-                      | true -> data_of_gc_stats ()) @
-                   [Topic.(Topic (Real, Time), `Int Int64.(rem time_end time_start))])
-                  stderr_lines);
+          data;
           checked=(match chk_cmd with
               | None -> None
               | Some chk -> (match Sys.command (String.concat " " chk)
@@ -552,12 +635,17 @@ module Libperf_wrapper = struct
     Perf.with_process
       ?env ?timeout ~stdout:"stdout" ~stderr:"stderr" cmd attrs |> function
     | `Ok {process_status; stdout; stderr; duration; data;} ->
-        let data = List.map (fun (k, v) ->
-            Topic.(Topic (k, Libperf)), `Int v) data in
-        let data = (Topic.(Topic ((Real, Time))), `Int duration)::data in
-        let data = data @ (match Sys.file_exists "gc_stats" with
-            | false -> []
-            | true -> data_of_gc_stats ()) in
+        let data = KindMap.fold
+            (fun k v a -> TMap.add Topic.(Topic (k, Libperf)) (`Int v) a)
+            data TMap.empty in
+        let data = TMap.add Topic.(Topic ((Real, Time))) (`Int duration) data in
+        let data = List.fold_left (fun a (k, v) -> TMap.add k v a)
+            data
+            (match Sys.file_exists "gc_stats" with
+             | false -> []
+             | true -> data_of_gc_stats ())
+            
+        in
         let checked = match chk_cmd with
           | None -> None
           | Some chk -> (match Sys.command (String.concat " " chk) with
@@ -574,7 +662,7 @@ module Runner = struct
   type execs = {
     time: Topic.time list;
     gc: Topic.gc list;
-    libperf: Perf.Attr.kind list;
+    libperf: Perf.Attr.Kind.t list;
     perf: string list;
   }
 
@@ -623,7 +711,7 @@ module Runner = struct
     let execs = run_execs execs b in
 
     (* Cleanup temporary directory *)
-    Util.FS.rm_rf temp_dir;
+    Util.FS.rm_r temp_dir;
     Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
 
   let run b =

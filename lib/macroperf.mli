@@ -1,7 +1,16 @@
-module type SEXPABLE = sig
-  type t
-  val t_of_sexp : Sexplib.Type.t -> t
-  val sexp_of_t : t -> Sexplib.Type.t
+module Sexpable : sig
+  module type S = sig
+    type t with sexp
+  end
+  module type S1 = sig
+    type 'a t with sexp
+  end
+  module type S2 = sig
+    type ('a, 'b) t with sexp
+  end
+  module type S3 = sig
+    type ('a, 'b, 'c) t with sexp
+  end
 end
 
 module Util : sig
@@ -9,7 +18,10 @@ module Util : sig
     val (/) : string -> string -> string
     val home : string
     val cache_dir : string
-    val ls : string -> string list
+    val ls : ?preserve_order:bool -> ?prefix:bool -> string -> string list
+    val iter : (string -> unit) -> string -> unit
+    val fold : ('a -> string -> 'a) -> 'a -> string -> 'a
+    val rm_r : string -> unit
   end
 
   module File : sig
@@ -74,7 +86,7 @@ module Topic : sig
     | Gc : gc kind
 
     (** Use the ocaml-perf binding to perf_event_open(2). *)
-    | Libperf : Perf.Attr.kind kind (** Refer to ocaml-perf for numbers *)
+    | Libperf : Perf.Attr.Kind.t kind (** Refer to ocaml-perf for numbers *)
 
     (** Use the perf-stat(1) command (need the perf binary, linux
         only) *)
@@ -112,7 +124,7 @@ module Benchmark : sig
     (** Set of quantities to measure *)
   }
 
-  include SEXPABLE with type t := t
+  include Sexpable.S with type t := t
 
   val make :
     name:string ->
@@ -138,12 +150,15 @@ module Measure : sig
       cast of [msr_string]. *)
 end
 
+module SMap : Map.S with type key = string
+module TMap : Map.S with type key = Topic.t
+
 module Execution : sig
   type exec = {
     process_status: Unix.process_status;
     stdout: string;
     stderr: string;
-    data: (Topic.t * Measure.t) list;
+    data: Measure.t TMap.t;
     checked: bool option;
   }
   (** Type representing the successful execution of a benchmark. *)
@@ -153,6 +168,10 @@ module Execution : sig
 
   val error : exn -> t
   (** [error exn] is `Error Printexc.(to_string exn) *)
+
+  val duration : t -> Int64.t
+  (** [duration e] is the duration of [e] in nanoseconds. *)
+
 end
 
 module Result : sig
@@ -173,7 +192,7 @@ module Result : sig
       go. *)
 
 
-  include SEXPABLE with type t := t
+  include Sexpable.S with type t := t
 
   val make :
     src:Benchmark.t ->
@@ -189,26 +208,54 @@ end
 module Summary : sig
   module Aggr : sig
     type t = { mean: float; stddev: float; mini: float; maxi: float; }
-    val normalize : ?divide_mean_by:float -> t -> t
+
+    val of_measures : Measure.t list -> t
+
+    val normalize : t -> t
+    (** [normalize a] is [a] where all the fields are divided by
+        [a.mean]. *)
+
+    val normalize2 : t -> t -> t
+    (** [normalize2 a b] is [b] where all the fields are divided by
+        [b.mean]. *)
+  end
+
+  module Data : sig
+    type t = Aggr.t TMap.t
+    include Sexpable.S with type t := t
+
+    val normalize : t -> t
+    val normalize2 : t -> t -> t
   end
 
   type t = {
     name: string;
     context_id: string;
-    data: (Topic.t * Aggr.t) list;
+    data: Data.t;
   }
 
-  include SEXPABLE with type t := t
+  include Sexpable.S with type t := t
 
   val of_result : Result.t -> t
+end
 
+module DB : sig
   (** Database of summaries *)
-  module DB : sig
-    type t = (string * (string * (Topic.t * Aggr.t) list) list) list
-    (** Indexed by benchmark, context_id, topic. *)
 
-    include SEXPABLE with type t := t
-  end
+  type 'a t = ('a SMap.t) SMap.t
+  (** Indexed by benchmark, context_id, topic. *)
+
+  include Sexpable.S1 with type 'a t := 'a t
+
+  val empty : 'a t
+
+  val add : string -> string -> 'a -> 'a t -> 'a t
+
+  val map : ('a -> 'b) -> 'a t -> 'b t
+
+  val normalize : ?context_id:string -> Summary.Data.t t -> Summary.Data.t t
+  (** [normalize ~context_id db] is [db] where all the aggrs. are
+      normalized wrt. the [context_id] aggr. *)
 end
 
 

@@ -81,7 +81,7 @@ let libperf copts cmd evts bench_out =
                 |> String.capitalize
                 |> Re_pcre.substitute ~rex ~subst:(fun _ -> "_")
                 |> Sexplib.Std.sexp_of_string
-                |> fun s -> Topic.(Topic (Perf.Attr.kind_of_sexp s, Libperf))
+                |> fun s -> Topic.(Topic (Perf.Attr.Kind.t_of_sexp s, Libperf))
       ) evts
   in
   make_bench_and_run copts cmd bench_out evts
@@ -169,7 +169,6 @@ let list switch =
 let summarize copts evts normalize csv selectors =
   let evts = let rex = Re_pcre.regexp "," in Re_pcre.split ~rex evts in
   let evts = List.map Topic.of_string evts in
-  let data = Hashtbl.create 13 in
 
   let selectors = match selectors with
     | [] -> [Util.FS.cache_dir]
@@ -188,95 +187,62 @@ let summarize copts evts normalize csv selectors =
               )
               [] ss
   in
-  let rec inner selector =
-    let create_summary_file () =
-      (* Summary file not found, we need to create it *)
-      let result = Util.File.sexp_of_file_exn selector
-          Result.t_of_sexp in
-      let summary = Summary.of_result result in
-      Summary.sexp_of_t summary
-      |> Sexplib.Sexp.save_hum
-        (Filename.chop_extension selector ^ ".summary");
-      summary
-    in
-    match kind_of_file selector with
-    | `File when Filename.check_suffix selector ".result" ->
-        (* Import the data contained in the file if it is a result
-           file *)
-        let summary_fn = (Filename.chop_extension selector ^ ".summary") in
-        let s =
-          if Sys.file_exists summary_fn &&
-             Unix.((stat summary_fn).st_mtime > (stat selector).st_mtime)
-          then
-            try
-              Util.File.sexp_of_file_exn
-                (Filename.chop_extension selector ^ ".summary")
-                Summary.t_of_sexp
-            with Sys_error _ -> create_summary_file ()
-          else
-            create_summary_file ()
-        in
-        (* Filter on user requested evts *)
-        let s_data = match evts with
-          | [] -> s.Summary.data
-          | evts -> List.filter (fun (t, _) -> List.mem t evts) s.Summary.data in
-        (try
-           let ctxs = Hashtbl.find data s.Summary.name in
-           Hashtbl.(Summary.(replace data s.name ((s.context_id, s_data)::ctxs)))
-         with Not_found ->
-           Hashtbl.(Summary.(add data s.name [s.context_id, s_data])))
-    | `Directory ->
-        (* Run inner on each file or directory inside <> ., .. *)
-        Util.FS.ls selector
-        |> List.filter (fun s -> s <> "." && s <> "..")
-        |> List.map (fun s -> Util.FS.(selector / s))
-        |> List.iter inner
-    | _ -> ()
+  let create_summary_file fn =
+    (* Summary file not found, we need to create it *)
+    let result = Util.File.sexp_of_file_exn fn
+        Result.t_of_sexp in
+    let summary = Summary.of_result result in
+    Summary.sexp_of_t summary
+    |> Sexplib.Sexp.save_hum
+      (Filename.chop_extension fn ^ ".summary");
+    summary
   in
-  List.iter inner selectors;
-  let data = Hashtbl.fold (fun k v a -> (k, v)::a) data [] in
+  let rec add_summary_to_db acc fn =
+    Util.FS.fold (fun acc fn ->
+        if Filename.check_suffix fn ".result"
+        then
+          (* Import the data contained in the file if it is a result
+             file *)
+          let summary_fn = (Filename.chop_extension fn ^ ".summary") in
+          let s =
+            if Sys.file_exists summary_fn &&
+               Unix.((stat summary_fn).st_mtime > (stat fn).st_mtime)
+            then
+              try
+                Util.File.sexp_of_file_exn
+                  (Filename.chop_extension fn ^ ".summary")
+                  Summary.t_of_sexp
+              with Sys_error _ -> create_summary_file fn
+            else
+              create_summary_file fn
+          in
 
-  (* Normalization *)
-  let normalize_bench ?context_id l =
-    let normalize_itself ?ht =
-      match ht with
-      | None ->
-          List.map
-            (fun (cid, ta) ->
-               cid, List.map (fun (t, a) ->
-                   let a = Summary.Aggr.normalize a in (t, a)) ta)
-      | Some ht ->
-          List.map
-            (fun (cid, ta) ->
-               cid, (List.map (fun (t, a) ->
-                   let a = Summary.Aggr.normalize
-                       ~divide_mean_by:(Hashtbl.find ht t) a
-                   in (t, a))) ta)
-    in
-    match context_id with
-    | None -> normalize_itself l (* Normalize with respect to itself *)
-    | Some cid ->
-        (* Normalize with respect to a compiler_id *)
-        (* This hashtbl contains normal value per topic *)
-        let ht = Hashtbl.create 13 in
-        let normal = List.assoc cid l in
-        let open Summary.Aggr in
-        List.iter (fun (t, {mean; _}) -> Hashtbl.add ht t mean) normal;
-        normalize_itself ~ht l
+          (* Filter on user requested evts *)
+          let s_data = match evts with
+            | [] -> s.Summary.data
+            | evts -> TMap.filter (fun t _ -> List.mem t evts) s.Summary.data in
+
+          (* Add summary data to datastructure *)
+          Summary.(DB.add s.name s.context_id s_data acc)
+        else
+          acc
+      ) acc fn
   in
+  (* Create the DB *)
+  assert (List.length selectors > 0);
+  let data = List.fold_left add_summary_to_db DB.empty selectors in
+  assert (data <> DB.empty);
   let data =
-  (match normalize with
-  | None -> data
-  | Some "" ->
-      List.map (fun (k, v) -> k, (normalize_bench v)) data
-  | Some context_id ->
-      List.map (fun (k, v) -> k, (normalize_bench ~context_id v)) data)
+    (match normalize with
+        | None -> data
+        | Some "" -> DB.normalize data
+        | Some context_id -> DB.normalize ~context_id data)
   in
-
-  if csv then
+  assert (data <> DB.empty);
+  if not csv then
     match copts.output_file with
-    | "" -> Sexplib.Sexp.output_hum stdout @@ Summary.DB.sexp_of_t data
-    | fn -> Sexplib.Sexp.save_hum fn @@ Summary.DB.sexp_of_t data
+    | "" -> Sexplib.Sexp.output_hum stdout @@ DB.sexp_of_t Summary.Data.sexp_of_t data
+    | fn -> Sexplib.Sexp.save_hum fn @@ DB.sexp_of_t Summary.Data.sexp_of_t data
   else
     match copts.output_file with
     | "" -> ()
