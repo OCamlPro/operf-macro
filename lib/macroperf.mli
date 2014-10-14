@@ -31,6 +31,7 @@ module Util : sig
     val sexp_of_file_exn : string -> (Sexplib.Type.t -> 'a) -> 'a
     val lines_of_file : string -> string list
     val write_string_to_file: fn:string -> string -> unit
+    val with_oc_safe : (out_channel -> 'a) -> string -> 'a
   end
 
   module Cmd : sig
@@ -150,6 +151,7 @@ module Measure : sig
       cast of [msr_string]. *)
 end
 
+module SSet : Set.S with type elt = string
 module SMap : Map.S with type key = string
 module TMap : Map.S with type key = Topic.t
 
@@ -261,7 +263,15 @@ module DB2 : sig
 
   val empty : 'a t
   val add : TMap.key -> SMap.key -> SMap.key -> 'a -> 'a t -> 'a t
+
+  val fold : (TMap.key -> SMap.key -> SMap.key -> 'a -> 'b -> 'b) ->
+    'a SMap.t SMap.t TMap.t -> 'b -> 'b
+
   val normalize : ?context_id:string -> Summary.Aggr.t t -> Summary.Aggr.t t
+
+  val context_ids : 'a t -> SSet.t
+
+  val to_csv : ?sep:string -> out_channel -> ?topic:TMap.key -> Summary.Aggr.t t -> unit
 end
 
 

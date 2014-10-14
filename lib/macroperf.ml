@@ -105,6 +105,11 @@ module Util = struct
         close_out oc
       with exn ->
         close_out oc; raise exn
+
+    let with_oc_safe f fn =
+      let oc = open_out fn in
+      try let res = f oc in close_out oc; res
+      with exn -> close_out oc; raise exn
   end
 
   module Cmd = struct
@@ -267,6 +272,8 @@ module Topic = struct
 
   let compare = Pervasives.compare
 end
+
+module SSet = Set.Make(String)
 
 module SMap = struct
   include Map.Make(String)
@@ -492,6 +499,32 @@ module DB2 = struct
     let bench_map = SMap.add bench cid_map bench_map in
     TMap.add topic bench_map t
 
+  let map f t =
+    TMap.map (fun v -> SMap.map (fun v -> f v) v) t
+
+  let fold f t a =
+    TMap.fold (fun k1 v a ->
+        SMap.fold (fun k2 v a ->
+            SMap.fold (fun k3 v a ->
+                f k1 k2 k3 v a)
+              v a)
+          v a)
+      t a
+
+  let context_ids db =
+    fold (fun _ _ ctx _ a -> SSet.add ctx a) db SSet.empty
+
+  let add_missing_ctx db =
+    let ctx_ids = context_ids db in
+    let db = map (fun ctxmap -> SMap.map (fun aggr -> Some aggr) ctxmap) db in
+    map (fun ctxmap ->
+        SSet.fold (fun ctx ctxmap ->
+            SMap.add ctx
+              (try SMap.find ctx ctxmap with Not_found -> None)
+              ctxmap)
+          ctx_ids ctxmap)
+      db
+
   let normalize ?context_id t =
     let normalize_smap ?context_id smap =
       match context_id with
@@ -501,6 +534,36 @@ module DB2 = struct
       | None -> SMap.map Summary.Aggr.normalize smap
     in
     TMap.map (fun v -> SMap.map (fun v -> normalize_smap ?context_id v) v) t
+
+  let to_csv ?(sep=",") oc ?topic db =
+    let print_table topic db =
+      let min_binding = snd @@ SMap.min_binding db in
+      let context_ids =
+        List.map fst @@ SMap.bindings min_binding in
+      output_string oc @@ topic ^ sep;
+      output_string oc @@ String.concat sep context_ids ^ "\n";
+      SMap.iter (fun bench ctx_map ->
+          output_string oc @@ bench ^ sep;
+          SMap.bindings ctx_map
+          |> List.map (fun (_, aggropt) -> match aggropt with
+              | None -> ""
+              | Some aggr -> string_of_float aggr.Summary.Aggr.mean)
+          |> String.concat sep
+          |> output_string oc;
+          output_string oc "\n"
+        ) db
+
+    in
+    let db = add_missing_ctx db in
+    match topic with
+    | None ->
+        TMap.iter
+          (fun t db -> print_table (Topic.to_string t) db; print_endline "")
+          db
+    | Some t ->
+        let topic = Topic.to_string t in
+        let db = TMap.find t db in
+        print_table topic db
 end
 
 module Process = struct

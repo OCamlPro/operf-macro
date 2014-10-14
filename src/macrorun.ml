@@ -247,8 +247,8 @@ let summarize copts evts normalize csv selectors =
     | fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
   else
     match copts.output_file with
-    | "" -> ()
-    | fn -> ()
+    | "" -> DB2.to_csv stdout data
+    | fn -> Util.File.with_oc_safe (fun oc -> DB2.to_csv oc data) fn
 
 open Cmdliner
 
