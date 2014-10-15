@@ -590,7 +590,7 @@ module Process = struct
     confidence = 0.05;
   }
 
-  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) (f : unit -> Execution.t) =
+  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~interactive (f : unit -> Execution.t) =
 
     let run_until ~probability ~confidence (init_acc : Execution.t list) =
       let rec run_until (nb_iter, (acc : Execution.t list)) =
@@ -598,6 +598,8 @@ module Process = struct
           List.map (fun e -> Execution.duration e |> Int64.to_float) acc in
         match Statistics.enough_samples ~probability ~confidence durations with
         | true ->
+            if interactive then
+              Printf.printf "%d times.\n" nb_iter;
             acc
         | false ->
             let exec = f () in
@@ -743,7 +745,7 @@ module Runner = struct
     perf: string list;
   }
 
-  let run_exn ?(switch=Util.Opam.switch) b =
+  let run_exn ?(switch=Util.Opam.switch) ~interactive b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
@@ -778,19 +780,18 @@ module Runner = struct
          non-empty. *)
       let libperf_res = match libperf with
         | [] -> []
-        | libperf -> Libperf_wrapper.(run ~env b.cmd libperf) in
+        | libperf -> Libperf_wrapper.(run ~interactive ~env b.cmd libperf) in
       let perf_res = match perf with
         | [] -> []
-        | perf -> Perf_wrapper.(run ~env b.cmd perf) in
+        | perf -> Perf_wrapper.(run ~interactive ~env b.cmd perf) in
       (libperf_res @ perf_res)
     in
 
+    if interactive then
+      Printf.printf "Running benchmark %s (compiled with OCaml %s)... %!" b.name switch;
     let execs = run_execs execs b in
 
     (* Cleanup temporary directory *)
     Util.FS.rm_r temp_dir;
     Result.make ~context_id:switch ~src:b ~execs ()
-
-  let run ?(switch=Util.Opam.switch) b =
-    try Some (run_exn ~switch b) with _ -> None
 end

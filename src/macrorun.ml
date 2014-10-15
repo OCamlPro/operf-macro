@@ -1,17 +1,18 @@
 open Macroperf
 
 type copts = {
-  output_file: string;
+  output: [`Channel of out_channel | `File of string | `None];
   ignore_out: [`Stdout | `Stderr] list;
 }
 
-let write_res ?(strip=[]) ?file res =
-  let res = List.fold_left (fun a s -> Result.strip s a) res strip in
+let write_res_copts copts res =
+  let res = List.fold_left (fun a s -> Result.strip s a) res copts.ignore_out in
 
   (* Write the result into stdout, or <file> if specified *)
-  (match file with
-   | None -> Sexplib.Sexp.output_hum stdout @@ Result.sexp_of_t res
-   | Some fn ->
+  (match copts.output with
+   | `None -> ()
+   | `Channel oc -> Sexplib.Sexp.output_hum oc @@ Result.sexp_of_t res
+   | `File fn ->
        try Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res
        with Sys_error _ -> ()
          (* Sexplib cannot create temporary file, aborting*)
@@ -27,10 +28,6 @@ let write_res ?(strip=[]) ?file res =
     XDGBaseDir.mkdir_openfile
       (fun fn -> Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res) res_file
   with Not_found -> ()
-
-let write_res_copts copts res = match copts with
-  | {output_file=""; ignore_out } -> write_res ~strip:ignore_out res
-  | {output_file; ignore_out } -> write_res ~strip:ignore_out ~file:output_file res
 
 (* Generic function to create and run a benchmark *)
 let make_bench_and_run copts cmd bench_out topics =
@@ -58,7 +55,8 @@ let make_bench_and_run copts cmd bench_out topics =
       Sexplib.Sexp.save_hum benchfile @@ Benchmark.sexp_of_t bench);
 
   (* Run the benchmark *)
-  let res = Runner.run_exn bench in
+  let interactive = copts.output = `None in
+  let res = Runner.run_exn ~interactive bench in
 
   (* Write the result in the file specified by -o, or stdout and maybe
      in cache as well *)
@@ -102,9 +100,10 @@ let is_benchmark_file filename =
 
 let run copts switch selectors =
   let share = Util.Opam.share ?switch () in
+  let interactive = copts.output = `None in
 
   (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
-  let selectors = match selectors with
+  let infered_selectors = match selectors with
     | [] ->
         let names = Util.FS.ls share in
         let names = List.map (fun n -> Filename.concat share n) names in
@@ -117,7 +116,7 @@ let run copts switch selectors =
   let rec run_inner selector =
     let run_bench filename =
       let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
-      let res = Runner.run_exn ?switch b in
+      let res = Runner.run_exn ?switch ~interactive b in
       write_res_copts copts res
     in
     match kind_of_file selector with
@@ -132,16 +131,19 @@ let run copts switch selectors =
         Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector
     | `Directory ->
         (* Get a list of .bench files in the directory and run them *)
-        Util.FS.ls selector
-        |> List.map (Filename.concat selector)
-        |> List.filter is_benchmark_file
-        |> List.iter run_bench
+        let benchs = Util.FS.ls selector in
+        if interactive && benchs = [] && selectors <> [] then
+          Printf.printf "No benchmark files (*.bench) found in %s.\n" selector
+        else
+          List.(map (Filename.concat selector) benchs
+                |> filter is_benchmark_file
+                |> iter run_bench)
     | `File ->
         List.iter run_bench [selector]
   in
-  List.iter run_inner selectors
+  List.iter run_inner infered_selectors
 
-let help copts man_format cmds topic = match topic with
+let help man_format cmds topic = match topic with
   | None -> `Help (`Pager, None) (* help about the program. *)
   | Some topic ->
       let topics = "topics" :: "patterns" :: "environment" :: cmds in
@@ -243,13 +245,15 @@ let summarize copts evts normalize csv selectors =
         | Some context_id -> DB2.normalize ~context_id data)
   in
   if not csv then
-    match copts.output_file with
-    | "" -> Sexplib.Sexp.output_hum stdout @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
-    | fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
+    match copts.output with
+    | `None -> Sexplib.Sexp.output_hum stdout @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
+    | `Channel oc -> Sexplib.Sexp.output_hum oc @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
+    | `File fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
   else
-    match copts.output_file with
-    | "" -> DB2.to_csv stdout data
-    | fn -> Util.File.with_oc_safe (fun oc -> DB2.to_csv oc data) fn
+    match copts.output with
+    | `None -> DB2.to_csv stdout data
+    | `Channel oc -> DB2.to_csv oc data
+    | `File fn -> Util.File.with_oc_safe (fun oc -> DB2.to_csv oc data) fn
 
 open Cmdliner
 
@@ -263,8 +267,12 @@ let help_secs = [
   `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
   `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
-let copts output_file ignore_out =
-  { output_file;
+let copts interactive output_file ignore_out =
+  let output =
+    if interactive then `None
+    else if output_file = "" then `Channel stdout
+    else `File output_file in
+  { output;
     ignore_out=List.map
         (function
           | "stdout" -> `Stdout
@@ -276,13 +284,17 @@ let copts output_file ignore_out =
 
 let copts_t =
   let docs = copts_sect in
+  let interactive =
+    let doc = "Run in interactive mode, i.e. do not print result files to screen\
+               but rather print information about progression." in
+    Arg.(value & flag & info ["i";"interactive"] ~docs ~doc) in
   let output_file =
     let doc = "File to write the result to (default: stdout)." in
     Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc) in
   let ignore_out =
     let doc = "Discard program output (default: none)." in
     Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
-  Term.(pure copts $ output_file $ ignore_out)
+  Term.(pure copts $ interactive $ output_file $ ignore_out)
 
 let help_cmd =
   let topic =
@@ -294,7 +306,7 @@ let help_cmd =
     [`S "DESCRIPTION";
      `P "Prints help about macroperf commands and other subjects..."] @ help_secs
   in
-  Term.(ret (pure help $ copts_t $ Term.man_format $ Term.choice_names $topic)),
+  Term.(ret (pure help $ Term.man_format $ Term.choice_names $topic)),
   Term.info "help" ~doc ~man
 
 let default_cmd =

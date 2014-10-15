@@ -276,6 +276,5 @@ end
 
 
 module Runner : sig
-  val run_exn : ?switch:string -> Benchmark.t -> Result.t
-  val run     : ?switch:string -> Benchmark.t -> Result.t option
+  val run_exn : ?switch:string -> interactive:bool -> Benchmark.t -> Result.t
 end
