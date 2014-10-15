@@ -1,6 +1,6 @@
 <**/*.{ml,mli}> : bin_annot, debug
 <lib> : include
 <src> : include
-<lib/*.{ml,mli}> : package(re.pcre), syntax(camlp4o), package(sexplib.syntax), package(perf), package(opam-lib), package(oclock), package(xdg-basedir)
+<lib/*.{ml,mli}> : package(re.pcre), syntax(camlp4o), package(sexplib.syntax), package(perf), package(oclock), package(xdg-basedir)
 <src/*.{ml,mli}> : package(re.pcre), package(cmdliner), package(sexplib), package(xdg-basedir), package(perf), package(oclock)
 <src/*.{byte,native}>: package(cmdliner), package(re.pcre), package(sexplib), package(xdg-basedir), package(perf), package(oclock)
