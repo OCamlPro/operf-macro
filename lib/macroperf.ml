@@ -722,7 +722,6 @@ module Libperf_wrapper = struct
             (match Sys.file_exists "gc_stats" with
              | false -> []
              | true -> data_of_gc_stats ())
-            
         in
         let checked = match chk_cmd with
           | None -> None
@@ -744,7 +743,7 @@ module Runner = struct
     perf: string list;
   }
 
-  let run_exn b =
+  let run_exn ?(switch=Util.Opam.switch) b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
@@ -790,8 +789,8 @@ module Runner = struct
 
     (* Cleanup temporary directory *)
     Util.FS.rm_r temp_dir;
-    Result.make ~context_id:Util.Opam.switch ~src:b ~execs ()
+    Result.make ~context_id:switch ~src:b ~execs ()
 
-  let run b =
-    try Some (run_exn b) with _ -> None
+  let run ?(switch=Util.Opam.switch) b =
+    try Some (run_exn ~switch b) with _ -> None
 end

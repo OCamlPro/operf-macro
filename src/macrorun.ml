@@ -117,7 +117,7 @@ let run copts switch selectors =
   let rec run_inner selector =
     let run_bench filename =
       let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
-      let res = Runner.run_exn b in
+      let res = Runner.run_exn ?switch b in
       write_res_copts copts res
     in
     match kind_of_file selector with
@@ -125,7 +125,8 @@ let run copts switch selectors =
         (* Not found, but can be an OPAM package name... *)
         (match kind_of_file Filename.(concat share selector) with
          | `Noent | `File | `Other_kind ->
-             Printf.eprintf "Warning: %s is not an OPAM package.\n" selector
+             Printf.eprintf "Warning: No benchmark found in %s.\n"
+               Filename.(concat share selector)
          | `Directory -> run_inner Filename.(concat share selector))
     | `Other_kind ->
         Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector
