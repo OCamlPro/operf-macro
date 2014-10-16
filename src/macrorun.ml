@@ -64,14 +64,10 @@ let make_bench_and_run copts cmd bench_out topics =
 
 let perf copts cmd evts bench_out =
   (* Separate events from the event list given in PERF format *)
-  let rex = Re_pcre.regexp "," in
-  let evts = Re_pcre.split ~rex evts in
   let evts = List.map (fun e -> Topic.(Topic (e, Perf))) evts in
   make_bench_and_run copts cmd bench_out evts
 
 let libperf copts cmd evts bench_out =
-  let rex = Re_pcre.regexp "," in
-  let evts = Re_pcre.split ~rex evts in
   let rex = Re_pcre.regexp "-" in
   let evts = List.map
       (fun s -> s
@@ -170,9 +166,7 @@ let list switch =
 
 (* [selectors] are bench _names_ *)
 let summarize copts evts normalize csv selectors =
-  let evts = let rex = Re_pcre.regexp "," in Re_pcre.split ~rex evts in
   let evts = List.map Topic.of_string evts in
-
   let selectors = match selectors with
     | [] -> [Util.FS.cache_dir]
     | ss -> List.fold_left
@@ -319,12 +313,14 @@ let default_cmd =
 let bench_out =
   let doc = "Export the generated bench to file." in
   Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc)
+
 let cmd =
   let doc = "Any command you can specify in a shell." in
   Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
+
 let evts =
   let doc = "Same as the -e argument of PERF-STAT(1)." in
-  Arg.(value & opt string "cycles" & info ["e"; "event"] ~docv:"perf-events" ~doc)
+  Arg.(value & opt (list string) ["cycles"] & info ["e"; "event"] ~docv:"perf-events" ~doc)
 
 let perf_cmd =
   let doc = "Macrobenchmark using PERF-STAT(1) (Linux only)." in
@@ -383,7 +379,7 @@ let summarize_cmd =
   let evts =
     let doc = "Select the topic to summarize. \
 This command understand gc stats, perf events, times... (default: all topics)." in
-    Arg.(value & opt string "" & info ["e"; "event"] ~docv:"evts" ~doc) in
+    Arg.(value & opt (list string) [] & info ["e"; "event"] ~docv:"evts" ~doc) in
   let normalize =
     let doc = "Normalize against the value of a context_id (compiler)." in
     Arg.(value & opt ~vopt:(Some "") (some string) None &
