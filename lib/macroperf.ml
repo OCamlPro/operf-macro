@@ -551,7 +551,7 @@ module DB2 = struct
     TMap.map (fun v -> SMap.filter_map (fun v -> normalize_smap ?context_id v) v) t
 
   let to_csv ?(sep=",") oc ?topic db =
-    let print_table topic db =
+    let print_table topic = function db when db = SMap.empty -> () | db ->
       let min_binding = snd @@ SMap.min_binding db in
       let context_ids =
         List.map fst @@ SMap.bindings min_binding in
@@ -567,7 +567,6 @@ module DB2 = struct
           |> output_string oc;
           output_string oc "\n"
         ) db
-
     in
     let db = add_missing_ctx db in
     match topic with
