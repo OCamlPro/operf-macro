@@ -390,14 +390,15 @@ module Benchmark = struct
     cmd: string list;
     cmd_check: string list;
     env: string list option;
-    speed: speed;
-    timeout: int;
+    speed: speed with default(`Fast);
+    timeout: int with default(600);
+    weight: float with default(1.);
     topics: Topic.t list;
   } with sexp
 
   let make ~name ?descr ~cmd ?(cmd_check=[])
-      ?env ~speed ?(timeout=600) ~topics () =
-    { name; descr; cmd; cmd_check; env; speed; timeout; topics; }
+      ?env ~speed ?(timeout=600) ?(weight=1.) ~topics () =
+    { name; descr; cmd; cmd_check; env; speed; timeout; weight; topics; }
 end
 
 module Result = struct

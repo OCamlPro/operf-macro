@@ -121,6 +121,9 @@ module Benchmark : sig
     (** Use to characterize the execution time of a benchmark *)
     timeout: int;
     (** Maximum time per execution, in seconds. *)
+    weight: float;
+    (** Used to specify the relative importance of this benchmark
+        compared to others (default: 1.) *)
     topics: Topic.t list;
     (** Set of quantities to measure *)
   }
@@ -135,6 +138,7 @@ module Benchmark : sig
     ?env:string list ->
     speed:speed ->
     ?timeout:int ->
+    ?weight:float ->
     topics:Topic.t list ->
     unit ->
     t
