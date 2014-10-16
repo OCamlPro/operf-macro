@@ -281,6 +281,12 @@ module SMap = struct
   let of_list l =
     List.fold_left (fun a (k,v) -> add k v a) empty l
 
+  let filter_map f t =
+    fold (fun k v a -> match f v with Some r -> add k r a | None -> a) t empty
+
+  let filter_mapi f t =
+    fold (fun k v a -> match f k v with Some r -> add k r a | None -> a) t empty
+
   type 'a bindings = (string * 'a) list with sexp
 
   let t_of_sexp sexp_of_elt s = bindings_of_sexp sexp_of_elt s |> of_list
@@ -295,6 +301,12 @@ module TMap = struct
 
   let of_list l =
     List.fold_left (fun a (k,v) -> add k v a) empty l
+
+  let filter_map f t =
+    fold (fun k v a -> match f v with Some r -> add k r a | None -> a) t empty
+
+  let filter_mapi f t =
+    fold (fun k v a -> match f k v with Some r -> add k r a | None -> a) t empty
 
   type 'a bindings = (key * 'a) list with sexp
 
@@ -530,11 +542,13 @@ module DB2 = struct
     let normalize_smap ?context_id smap =
       match context_id with
       | Some context_id ->
-          let normal_aggr = SMap.find context_id smap in
-          SMap.map (fun a -> Summary.Aggr.normalize2 a normal_aggr) smap
-      | None -> SMap.map Summary.Aggr.normalize smap
+          (try
+            let normal_aggr = SMap.find context_id smap in
+            Some (SMap.map (fun a -> Summary.Aggr.normalize2 a normal_aggr) smap)
+          with Not_found -> None)
+      | None -> Some (SMap.map Summary.Aggr.normalize smap)
     in
-    TMap.map (fun v -> SMap.map (fun v -> normalize_smap ?context_id v) v) t
+    TMap.map (fun v -> SMap.filter_map (fun v -> normalize_smap ?context_id v) v) t
 
   let to_csv ?(sep=",") oc ?topic db =
     let print_table topic db =
