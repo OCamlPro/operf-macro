@@ -69,7 +69,7 @@ let perf copts cmd evts bench_out =
 
 let libperf copts cmd evts bench_out =
   let rex = Re_pcre.regexp "-" in
-  let evts = List.map
+  let evts = try List.map
       (fun s -> s
                 |> String.lowercase
                 |> String.capitalize
@@ -77,6 +77,10 @@ let libperf copts cmd evts bench_out =
                 |> Sexplib.Std.sexp_of_string
                 |> fun s -> Topic.(Topic (Perf.Attr.Kind.t_of_sexp s, Libperf))
       ) evts
+    with Invalid_argument "kind_of_sexp" ->
+      (Printf.eprintf
+         "At least one of the requested topics (-e) is invalid. Exiting.\n";
+       exit 1)
   in
   make_bench_and_run copts cmd bench_out evts
 
@@ -166,7 +170,13 @@ let list switch =
 
 (* [selectors] are bench _names_ *)
 let summarize copts evts normalize csv selectors =
-  let evts = List.map Topic.of_string evts in
+  let evts =
+    try List.map Topic.of_string evts
+    with Invalid_argument "Topic.of_string" ->
+      (Printf.eprintf
+         "At least one of the requested topics (-e) is invalid. Exiting.\n";
+       exit 1)
+  in
   let selectors = match selectors with
     | [] -> [Util.FS.cache_dir]
     | ss -> List.fold_left
