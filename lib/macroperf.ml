@@ -746,7 +746,7 @@ module Runner = struct
     perf: string list;
   }
 
-  let run_exn ?(switch=Util.Opam.switch) ~interactive b =
+  let run_exn ?(context_id=Util.Opam.switch) ~interactive b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
@@ -789,10 +789,10 @@ module Runner = struct
     in
 
     if interactive then
-      Printf.printf "Running benchmark %s (compiled with OCaml %s)... %!" b.name switch;
+      Printf.printf "Running benchmark %s (compiled with OCaml %s)... %!" b.name context_id;
     let execs = run_execs execs b in
 
     (* Cleanup temporary directory *)
     Util.FS.rm_r temp_dir;
-    Result.make ~context_id:switch ~src:b ~execs ()
+    Result.make ~context_id ~src:b ~execs ()
 end

@@ -280,5 +280,5 @@ end
 
 
 module Runner : sig
-  val run_exn : ?switch:string -> interactive:bool -> Benchmark.t -> Result.t
+  val run_exn : ?context_id:string -> interactive:bool -> Benchmark.t -> Result.t
 end

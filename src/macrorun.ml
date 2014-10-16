@@ -98,7 +98,7 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch selectors =
+let run copts switch context_id selectors =
   let share = Util.Opam.share ?switch () in
   let interactive = copts.output = `None in
 
@@ -116,7 +116,7 @@ let run copts switch selectors =
   let rec run_inner selector =
     let run_bench filename =
       let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
-      let res = Runner.run_exn ?switch ~interactive b in
+      let res = Runner.run_exn ?context_id ~interactive b in
       write_res_copts copts res
     in
     match kind_of_file selector with
@@ -262,7 +262,7 @@ open Cmdliner
 let copts_sect = "COMMON OPTIONS"
 let help_secs = [
   `S copts_sect;
-  `P "These options are common to all commands.";
+  `P "These options are common to some commands (including this one).";
   `S "MORE HELP";
   `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
   `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
@@ -345,16 +345,21 @@ let libperf_cmd =
   Term.info "libperf" ~doc ~sdocs:copts_sect ~man
 
 let switch =
-  let doc = "Use the provided OPAM switch instead of using OPAM's current one." in
-  Arg.(value & opt (some string) None & info ["switch"] ~docv:"OPAM switch name" ~doc)
+  let doc = "Look for benchmarks installed in another switch, instead of the current one." in
+  Arg.(value & opt (some string) None & info ["s"; "switch"] ~docv:"string" ~doc)
 
 let run_cmd =
+  let context_id =
+    let doc = "Use the specified context_id when writing benchmark results, \
+              instead of the switch name." in
+    Arg.(value & opt (some string) None & info ["c"; "cid"] ~docv:"string" ~doc)
+  in
   let selector =
     let doc = "If the argument correspond to a filename, the benchmark \
                is executed from this file, otherwise \
                the argument is treated as an OPAM package. \
                If missing, all OPAM benchmarks installed in \
-               the current switch are executed." in
+               the current switch (or the one specified) are executed." in
     Arg.(value & pos_all string [] & info [] ~docv:"<file|package>" ~doc)
   in
   let doc = "Run macrobenchmarks from files." in
@@ -362,17 +367,17 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ selector),
+  Term.(pure run $ copts_t $ switch $ context_id $ selector),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 let list_cmd =
   let doc = "List installed OPAM benchmarks." in
   let man = [
     `S "DESCRIPTION";
-    `P "List installed OPAM benchmarks in the current switch."] @ help_secs
+    `P "List installed OPAM benchmarks."] @ help_secs
   in
   Term.(pure list $ switch),
-  Term.info "list" ~doc ~man
+  Term.info "list" ~doc ~sdocs:copts_sect ~man
 
 let summarize_cmd =
   let evts =
