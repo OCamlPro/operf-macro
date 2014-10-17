@@ -169,7 +169,7 @@ let list switch =
        |> List.iter (fun s -> Format.printf "%s@." s))
 
 (* [selectors] are bench _names_ *)
-let summarize copts evts normalize csv selectors =
+let summarize copts evts normalize csv selectors force =
   let evts =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
@@ -213,7 +213,8 @@ let summarize copts evts normalize csv selectors =
           let summary_fn = (Filename.chop_extension fn ^ ".summary") in
           let s =
             if Sys.file_exists summary_fn &&
-               Unix.((stat summary_fn).st_mtime > (stat fn).st_mtime)
+               Unix.((stat summary_fn).st_mtime > (stat fn).st_mtime) &&
+               not force
             then
               try
                 Util.File.sexp_of_file_exn
@@ -386,6 +387,9 @@ let list_cmd =
   Term.info "list" ~doc ~sdocs:copts_sect ~man
 
 let summarize_cmd =
+  let force =
+    let doc = "Force rebuilding the summary files." in
+    Arg.(value & flag & info ["f"; "force"] ~doc) in
   let evts =
     let doc = "Select the topic to summarize. \
 This command understand gc stats, perf events, times... (default: all topics)." in
@@ -409,7 +413,7 @@ This command understand gc stats, perf events, times... (default: all topics)." 
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ evts $ normalize $ csv $ selector),
+  Term.(pure summarize $ copts_t $ evts $ normalize $ csv $ selector $ force),
   Term.info "summarize" ~doc ~man
 
 let cmds = [help_cmd; run_cmd; summarize_cmd;
