@@ -22,6 +22,14 @@ module Util : sig
     val iter : (string -> unit) -> string -> unit
     val fold : ('a -> string -> 'a) -> 'a -> string -> 'a
     val rm_r : string -> unit
+
+    val exists : string -> bool
+    val kind_exn : string -> Unix.file_kind
+    val is_file_exn : string -> bool
+    val is_dir_exn : string -> bool
+    val kind : string -> Unix.file_kind option
+    val is_file : string -> bool option
+    val is_dir : string -> bool option
   end
 
   module File : sig
@@ -36,6 +44,7 @@ module Util : sig
 
   module Cmd : sig
     val stdout_of_cmd : string -> Unix.process_status * string
+    val path_of_exe : string -> string
   end
 
   module Opam : sig

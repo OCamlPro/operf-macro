@@ -33,15 +33,15 @@ let write_res_copts copts res =
 let make_bench_and_run copts cmd bench_out topics =
   (* Build the name of the benchmark from the command line, but
      replace " " by "_" *)
-  let cmd = Util.FS.(let hd = List.hd cmd in
-                     if Filename.is_relative hd
-                     then Unix.getcwd () / hd else hd)
-            :: (List.tl cmd) in
-  let name = String.concat " " cmd in
-  let name_uscore = String.concat "_" cmd in
+  let cmd = match cmd with
+    | [] -> assert false
+    | h::t when Util.FS.exists h -> cmd
+    | h::t -> (Util.Cmd.path_of_exe h)::t
+  in
+  let name = Filename.basename @@ List.hd cmd in
   let bench =
     Benchmark.make
-      ~name:name_uscore
+      ~name
       ~descr:("Benchmark of " ^ name)
       ~cmd
       ~speed:`Fast

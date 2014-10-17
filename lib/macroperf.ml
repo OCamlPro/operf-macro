@@ -50,6 +50,15 @@ module Util = struct
             | S_DIR -> rmdir n
             | _ -> unlink n)
         n
+
+    let exists fn = try ignore (Unix.stat fn) = () with _ -> false
+    let kind_exn fn = Unix.((stat fn).st_kind)
+    let is_file_exn fn = Unix.((stat fn).st_kind = S_REG)
+    let is_dir_exn fn = Unix.((stat fn).st_kind = S_DIR)
+
+    let kind fn = try Some (kind_exn fn) with _ -> None
+    let is_file fn = try Some (is_file_exn fn) with _ -> None
+    let is_dir fn = try Some (is_dir_exn fn) with _ -> None
   end
 
   module File = struct
@@ -119,6 +128,9 @@ module Util = struct
       let res = File.string_of_ic ic in Unix.close_process_in ic, res
     with exn ->
       let _ = Unix.close_process_in ic in raise exn
+
+    let path_of_exe n =
+      snd @@ stdout_of_cmd @@ "command -v " ^ n
   end
 
   module Opam = struct
