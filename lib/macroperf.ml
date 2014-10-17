@@ -464,6 +464,7 @@ module Summary = struct
   type t = {
     name: string;
     context_id: string;
+    weight: float;
     data: Aggr.t TMap.t;
   } with sexp
 
@@ -476,6 +477,7 @@ module Summary = struct
     let data = data  |> TMap.lmerge |> TMap.map Aggr.of_measures in
     { name = r.Result.src.Benchmark.name;
       context_id = r.Result.context_id;
+      weight = r.Result.src.Benchmark.weight;
       data;
     }
 end

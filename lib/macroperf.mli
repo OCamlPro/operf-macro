@@ -240,6 +240,7 @@ module Summary : sig
   type t = {
     name: string;
     context_id: string;
+    weight: float;
     data: Aggr.t TMap.t;
   }
   (** Content of a "summary file". *)
