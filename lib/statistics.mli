@@ -16,3 +16,9 @@ val enough_samples :
     probability higher than [probability] that the difference between
     the mean of X and the empirical mean of the samples is less than
     [confidence * empirical_mean] *)
+
+val geometric_mean : float list -> float
+(** [geometric_mean fs] is <insert tex formula here>. *)
+
+val geometric_mean_w : (float * float) list -> float
+(** [geometric_mean_w fs] is <insert tex formula here>. *)

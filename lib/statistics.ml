@@ -41,3 +41,17 @@ let enough_samples ?(probability=0.95) ?(confidence=0.05) l =
   else
     let mean, interval = mean_and_confidence_interval ~probability l in
     interval /. mean <= confidence
+
+let geometric_mean fs =
+  let sum, prod =
+    List.fold_left
+      (fun (sum, prod) e -> (sum+.e, prod*.e))
+      (0., 1.) fs in
+  prod ** (1. /. sum)
+
+let geometric_mean_w fws =
+  let sumw, prod =
+    List.fold_left
+      (fun (sumw, prod) (v, w) -> (sumw+.w, prod*. (v ** w)))
+      (0., 1.) fws in
+  prod ** (1. /. sumw)
