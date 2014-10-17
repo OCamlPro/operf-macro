@@ -423,6 +423,12 @@ module Benchmark = struct
   let make ~name ?descr ~cmd ?(cmd_check=[])
       ?env ~speed ?(timeout=600) ?(weight=1.) ~topics () =
     { name; descr; cmd; cmd_check; env; speed; timeout; weight; topics; }
+
+  let save_hum fn s=
+    sexp_of_t s |> Sexplib.Sexp.save_hum fn
+
+  let output_hum oc s =
+    sexp_of_t s |> Sexplib.Sexp.output_hum oc
 end
 
 module Result = struct
@@ -439,6 +445,12 @@ module Result = struct
         { t with execs = List.map (Execution.strip `Stdout) t.execs }
     | `Stderr ->
         { t with execs = List.map (Execution.strip `Stderr) t.execs }
+
+  let save_hum fn s=
+    sexp_of_t s |> Sexplib.Sexp.save_hum fn
+
+  let output_hum oc s =
+    sexp_of_t s |> Sexplib.Sexp.output_hum oc
 end
 
 module Summary = struct
@@ -480,6 +492,45 @@ module Summary = struct
       weight = r.Result.src.Benchmark.weight;
       data;
     }
+
+  let load_from_result fn =
+    let result = Util.File.sexp_of_file_exn fn Result.t_of_sexp in
+    of_result result
+
+  let load fn = Util.File.sexp_of_file_exn fn t_of_sexp
+
+  let save_hum fn s=
+    sexp_of_t s |> Sexplib.Sexp.save_hum fn
+
+  let output_hum oc s =
+    sexp_of_t s |> Sexplib.Sexp.output_hum oc
+
+  let fold_dir f acc dn =
+    let open Unix in
+    Util.FS.fold
+      (fun acc fn -> match (stat fn).st_kind with
+         | S_REG when Filename.check_suffix fn ".summary" -> f acc fn
+         | _ -> acc
+      )
+      acc dn
+
+  let summarize_dir ?(update_only=true) dn =
+    let open Unix in
+    Util.FS.fold
+      (fun _ fn -> match (stat fn).st_kind with
+         | S_REG when Filename.check_suffix fn ".result" ->
+             let summary_fn =
+               Filename.chop_suffix fn ".result" ^ ".summary" in
+             if not
+                 (update_only
+                  && Sys.file_exists summary_fn
+                  && Unix.((stat summary_fn).st_mtime > (stat fn).st_mtime))
+             then
+               let s = load_from_result fn in
+               save_hum summary_fn s
+         | _ -> ()
+      )
+      () dn
 end
 
 module DB = struct
@@ -500,7 +551,7 @@ module DB = struct
     let context_map = SMap.add context_id tmap context_map in
     SMap.add bench context_map t
 
-  let map f t =
+  let map_tmap f t =
     SMap.map (fun v -> SMap.map (fun v -> f v) v) t
 
   let fold f t a =
@@ -511,6 +562,21 @@ module DB = struct
               v a)
           v a)
       t a
+
+  let fold_tmap f t a =
+    SMap.fold (fun k1 v a ->
+        SMap.fold (fun k2 v a ->
+            f k1 k2 v a)
+          v a)
+      t a
+
+  let of_dir ?(acc=SMap.empty) dn =
+    Summary.fold_dir
+      (fun db fn ->
+         let s = Summary.load fn in
+         Summary.(add_tmap s.name s.context_id s.data db)
+      )
+      acc dn
 end
 
 module DB2 = struct

@@ -177,6 +177,9 @@ let summarize copts evts normalize csv selectors force =
          "At least one of the requested topics (-e) is invalid. Exiting.\n";
        exit 1)
   in
+
+  (* [selectors] are directories hopefully containing .summary
+     files. *)
   let selectors = match selectors with
     | [] -> [Util.FS.cache_dir]
     | ss -> List.fold_left
@@ -194,60 +197,35 @@ let summarize copts evts normalize csv selectors force =
               )
               [] ss
   in
-  let create_summary_file fn =
-    (* Summary file not found, we need to create it *)
-    let result = Util.File.sexp_of_file_exn fn
-        Result.t_of_sexp in
-    let summary = Summary.of_result result in
-    Summary.sexp_of_t summary
-    |> Sexplib.Sexp.save_hum
-      (Filename.chop_extension fn ^ ".summary");
-    summary
-  in
-  let rec add_summary_to_db acc fn =
-    Util.FS.fold (fun acc fn ->
-        if Filename.check_suffix fn ".result"
-        then
-          (* Import the data contained in the file if it is a result
-             file *)
-          let summary_fn = (Filename.chop_extension fn ^ ".summary") in
-          let s =
-            if Sys.file_exists summary_fn &&
-               Unix.((stat summary_fn).st_mtime > (stat fn).st_mtime) &&
-               not force
-            then
-              try
-                Util.File.sexp_of_file_exn
-                  (Filename.chop_extension fn ^ ".summary")
-                  Summary.t_of_sexp
-              with Sys_error _ -> create_summary_file fn
-            else
-              create_summary_file fn
-          in
 
-          (* Filter on user requested evts *)
-          let s_data = match evts with
-            | [] -> s.Summary.data
-            | evts -> TMap.filter (fun t _ -> List.mem t evts) s.Summary.data in
+  (* Make sure all .result files have an up-to-date corresponding
+     .summary *)
+  List.iter Summary.summarize_dir selectors;
 
-          (* Add summary data to datastructure *)
-          Summary.(DB.add_tmap s.name s.context_id s_data acc)
-        else
-          acc
-      ) acc fn
-  in
   (* Create the DB *)
-  let data = List.fold_left add_summary_to_db DB.empty selectors in
+  let data = List.fold_left (fun db dn -> DB.of_dir ~acc:db dn)
+      DB.empty selectors in
+
+  (* Filter on user requested evts *)
+  let data = DB.map_tmap
+      (fun tm -> match evts with
+         | [] -> tm
+         | evts -> TMap.filter (fun t _ -> List.mem t evts) tm
+      )
+      data in
+
+  (* Create the DB2 from DB *)
   let data = DB.fold
       (fun bench context_id topic measure a ->
          DB2.add topic bench context_id measure a
       )
       data DB2.empty in
+
   let data =
     (match normalize with
-        | None -> data
-        | Some "" -> DB2.normalize data
-        | Some context_id -> DB2.normalize ~context_id data)
+     | None -> data
+     | Some "" -> DB2.normalize data
+     | Some context_id -> DB2.normalize ~context_id data)
   in
   if not csv then
     match copts.output with
@@ -259,6 +237,8 @@ let summarize copts evts normalize csv selectors force =
     | `None -> DB2.to_csv stdout data
     | `Channel oc -> DB2.to_csv oc data
     | `File fn -> Util.File.with_oc_safe (fun oc -> DB2.to_csv oc data) fn
+
+let rank copts evts normalize csv context_ids = ()
 
 open Cmdliner
 
@@ -386,21 +366,27 @@ let list_cmd =
   Term.(pure list $ switch),
   Term.info "list" ~doc ~sdocs:copts_sect ~man
 
+(* Arguments common to summarize, rank. *)
+
+let generalized_evts =
+  let doc = "Select the topic to summarize. \
+             This command understand gc stats, \
+             perf events, times... (default: all topics)." in
+  Arg.(value & opt (list string) [] & info ["e"; "event"] ~docv:"evts" ~doc)
+
+let normalize =
+  let doc = "Normalize against the value of a context_id (compiler)." in
+  Arg.(value & opt ~vopt:(Some "") (some string) None &
+       info ["n"; "normalize"] ~docv:"context_id" ~doc)
+
+let csv =
+  let doc = "Output in CSV format." in
+  Arg.(value & flag & info ["csv"] ~docv:"boolean" ~doc)
+
 let summarize_cmd =
   let force =
     let doc = "Force rebuilding the summary files." in
     Arg.(value & flag & info ["f"; "force"] ~doc) in
-  let evts =
-    let doc = "Select the topic to summarize. \
-This command understand gc stats, perf events, times... (default: all topics)." in
-    Arg.(value & opt (list string) [] & info ["e"; "event"] ~docv:"evts" ~doc) in
-  let normalize =
-    let doc = "Normalize against the value of a context_id (compiler)." in
-    Arg.(value & opt ~vopt:(Some "") (some string) None &
-         info ["n"; "normalize"] ~docv:"context_id" ~doc) in
-  let csv =
-    let doc = "Output in CSV format." in
-    Arg.(value & flag & info ["csv"] ~docv:"boolean" ~doc) in
   let selector =
     let doc = "If the argument correspond to a file, it is taken \
                as a .result file, otherwise the argument is treated as \
@@ -413,10 +399,22 @@ This command understand gc stats, perf events, times... (default: all topics)." 
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ evts $ normalize $ csv $ selector $ force),
+  Term.(pure summarize $ copts_t $ generalized_evts $ normalize $ csv $ selector $ force),
   Term.info "summarize" ~doc ~man
 
-let cmds = [help_cmd; run_cmd; summarize_cmd;
+let rank_cmd =
+  let context_ids =
+    let doc = "context_ids to rank" in
+    Arg.(value & pos_all string [] & info [] ~docv:"string" ~doc) in
+  let doc = "Produce an aggregated performance index for the desired compilers." in
+  let man = [
+    `S "DESCRIPTION";
+    `P "Produce an aggregated performance index for the desired compilers."] @ help_secs
+  in
+  Term.(pure rank $ copts_t $ generalized_evts $ normalize $ csv $ context_ids,
+        info "rank" ~doc ~man)
+
+let cmds = [help_cmd; run_cmd; summarize_cmd; rank_cmd;
             list_cmd; perf_cmd; libperf_cmd]
 
 let () = match Term.eval_choice ~catch:false default_cmd cmds with

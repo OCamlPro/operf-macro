@@ -151,6 +151,9 @@ module Benchmark : sig
     topics:Topic.t list ->
     unit ->
     t
+
+  val save_hum : string -> t -> unit
+  val output_hum : out_channel -> t -> unit
 end
 
 module Measure : sig
@@ -216,8 +219,11 @@ module Result : sig
     t
 
   val strip : [`Stdout | `Stderr] -> t -> t
-  (** [strip t chan is a result where the output of the program
+  (** [strip t chan] is a result where the output of the program
       executions in [chan] have been disabled. *)
+
+  val save_hum : string -> t -> unit
+  val output_hum : out_channel -> t -> unit
 end
 
 module Summary : sig
@@ -248,6 +254,25 @@ module Summary : sig
   include Sexpable.S with type t := t
 
   val of_result : Result.t -> t
+
+  (** I/O *)
+
+  val load_from_result : string -> t
+  val load : string -> t
+  val save_hum : string -> t -> unit
+  val output_hum : out_channel -> t -> unit
+
+  (** Operation on directories containing .summary files. *)
+
+  val fold_dir : ('a -> string -> 'a) -> 'a -> string -> 'a
+  (** [fold_dir f acc dn] is like [Util.FS.fold f acc dn] except it
+      folds only on regular files that have suffix .summary *)
+
+  val summarize_dir : ?update_only:bool -> string -> unit
+  (** [summarize_dir ?update_only dn] traverse [dn] and create a
+      .summary file for each .result file found. If [?update_only] is
+      set, then a .summary file is created only if needed (i.e. there
+      is none yet or the existing one is out-of-date. *)
 end
 
 module DB : sig
@@ -263,8 +288,14 @@ module DB : sig
   val add : SMap.key -> SMap.key -> TMap.key -> 'a -> 'a t -> 'a t
   val add_tmap : SMap.key -> SMap.key -> 'a TMap.t -> 'a t -> 'a t
 
-  val fold : (SMap.key -> SMap.key -> TMap.key -> 'a -> 'b -> 'b) ->
-    'a TMap.t SMap.t SMap.t -> 'b -> 'b
+  val map_tmap : ('a TMap.t -> 'a TMap.t) -> 'a t -> 'a t
+
+  val fold : (SMap.key -> SMap.key -> TMap.key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+  val fold_tmap : (SMap.key -> SMap.key -> 'a TMap.t -> 'b -> 'b) -> 'a t -> 'b -> 'b
+
+  val of_dir : ?acc:Summary.Aggr.t t -> string -> Summary.Aggr.t t
+  (** [of_dir dn] is the db created from the .summary files found from
+      the traversal of [dn]. *)
 end
 
 module DB2 : sig
