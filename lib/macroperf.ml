@@ -455,7 +455,12 @@ end
 
 module Summary = struct
   module Aggr = struct
-    type t = { mean: float; stddev: float; mini: float; maxi: float } with sexp
+    type t = {
+      mean: float;
+      stddev: float;
+      mini: float;
+      maxi: float;
+    } with sexp
 
     let of_measures m =
       let measures_float = List.map Measure.to_float m in
@@ -486,11 +491,22 @@ module Summary = struct
     let data = List.fold_left
         (fun a e -> match e with | `Ok e -> e.data::a | _ -> a)
         [] r.execs in
-    let data = data  |> TMap.lmerge |> TMap.map Aggr.of_measures in
-    { name = r.Result.src.Benchmark.name;
+    let data = data
+               |> TMap.lmerge
+               |> TMap.map @@ Aggr.of_measures in
+    { name = r.src.Benchmark.name;
       context_id = r.Result.context_id;
-      weight = r.Result.src.Benchmark.weight;
+      weight = r.src.Benchmark.weight;
       data;
+    }
+
+  let normalize s =
+    { s with data = TMap.map Aggr.normalize s.data }
+
+  let normalize2 s1 s2 =
+    { s1 with data = TMap.mapi (fun k v ->
+         let v2 = TMap.find k s2.data in
+         Aggr.normalize2 v v2) s1.data
     }
 
   let load_from_result fn =
@@ -534,49 +550,49 @@ module Summary = struct
 end
 
 module DB = struct
-  type 'a t = (('a TMap.t) SMap.t) SMap.t with sexp
+  type 'a t = ('a SMap.t) SMap.t with sexp
   (** Indexed by benchmark, context_id, topic. *)
 
   let empty = SMap.empty
 
-  let add bench context_id topic measure t =
-    let context_map = try SMap.find bench t with Not_found -> SMap.empty in
-    let topic_map = try SMap.find context_id context_map with Not_found -> TMap.empty in
-    let topic_map = TMap.add topic measure topic_map in
-    let context_map = SMap.add context_id topic_map context_map in
-    SMap.add bench context_map t
+  let add k1 k2 v t =
+    let map1 = try SMap.find k1 t with Not_found -> SMap.empty in
+    let map1 = SMap.add k2 v map1 in
+    SMap.add k1 map1 t
 
-  let add_tmap bench context_id tmap t =
-    let context_map = try SMap.find bench t with Not_found -> SMap.empty in
-    let context_map = SMap.add context_id tmap context_map in
-    SMap.add bench context_map t
-
-  let map_tmap f t =
+  let map f t =
     SMap.map (fun v -> SMap.map (fun v -> f v) v) t
 
   let fold f t a =
-    SMap.fold (fun k1 v a ->
-        SMap.fold (fun k2 v a ->
-            TMap.fold (fun k3 v a ->
-                f k1 k2 k3 v a)
-              v a)
-          v a)
-      t a
-
-  let fold_tmap f t a =
     SMap.fold (fun k1 v a ->
         SMap.fold (fun k2 v a ->
             f k1 k2 v a)
           v a)
       t a
 
+  let fold_data f t a =
+    SMap.fold (fun k1 v a ->
+        SMap.fold (fun k2 v a ->
+            TMap.fold (fun k3 v a ->
+                f k1 k2 k3 v a)
+              v.Summary.data a)
+          v a)
+      t a
+
   let of_dir ?(acc=SMap.empty) dn =
-    Summary.fold_dir
+    let open Summary in
+    fold_dir
       (fun db fn ->
-         let s = Summary.load fn in
-         Summary.(add_tmap s.name s.context_id s.data db)
+         let s = load fn in
+         add s.name s.context_id s db
       )
       acc dn
+
+  let save_hum fn f s =
+    sexp_of_t f s |> Sexplib.Sexp.save_hum fn
+
+  let output_hum oc f s =
+    sexp_of_t f s |> Sexplib.Sexp.output_hum oc
 end
 
 module DB2 = struct
@@ -640,9 +656,9 @@ module DB2 = struct
       SMap.iter (fun bench ctx_map ->
           output_string oc @@ bench ^ sep;
           SMap.bindings ctx_map
-          |> List.map (fun (_, aggropt) -> match aggropt with
+          |> List.map (fun (_, sopt) -> match sopt with
               | None -> ""
-              | Some aggr -> string_of_float aggr.Summary.Aggr.mean)
+              | Some aggr -> string_of_float Summary.(aggr.Aggr.mean))
           |> String.concat sep
           |> output_string oc;
           output_string oc "\n"

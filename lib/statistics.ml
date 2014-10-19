@@ -43,11 +43,11 @@ let enough_samples ?(probability=0.95) ?(confidence=0.05) l =
     interval /. mean <= confidence
 
 let geometric_mean fs =
-  let sum, prod =
+  let prod =
     List.fold_left
-      (fun (sum, prod) e -> (sum+.e, prod*.e))
-      (0., 1.) fs in
-  prod ** (1. /. sum)
+      (fun prod e -> prod*.e)
+      1. fs in
+  prod ** ((/.) 1. @@ float @@ List.length fs)
 
 let geometric_mean_w fws =
   let sumw, prod =

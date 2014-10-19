@@ -228,11 +228,16 @@ end
 
 module Summary : sig
   module Aggr : sig
-    type t = { mean: float; stddev: float; mini: float; maxi: float; }
+    type t = { mean: float;
+               stddev: float;
+               mini: float;
+               maxi: float;
+             }
 
     include Sexpable.S with type t := t
 
     val of_measures : Measure.t list -> t
+    (** [of_measures weight m] is a t *)
 
     val normalize : t -> t
     (** [normalize a] is [a] where all the fields are divided by
@@ -254,6 +259,11 @@ module Summary : sig
   include Sexpable.S with type t := t
 
   val of_result : Result.t -> t
+
+  val normalize : t -> t
+  val normalize2 : t -> t -> t
+  (** Fails with [Not_found] if the keys of the data TMap.t do not
+      match. *)
 
   (** I/O *)
 
@@ -278,24 +288,30 @@ end
 module DB : sig
   (** Database of summaries *)
 
-  type 'a t = (('a TMap.t) SMap.t) SMap.t
+  type 'a t = ('a SMap.t) SMap.t
   (** Indexed by benchmark, context_id, topic. *)
 
   include Sexpable.S1 with type 'a t := 'a t
 
   val empty : 'a t
 
-  val add : SMap.key -> SMap.key -> TMap.key -> 'a -> 'a t -> 'a t
-  val add_tmap : SMap.key -> SMap.key -> 'a TMap.t -> 'a t -> 'a t
+  (** Generic functions *)
 
-  val map_tmap : ('a TMap.t -> 'a TMap.t) -> 'a t -> 'a t
+  val add : SMap.key -> SMap.key -> 'a -> 'a t -> 'a t
+  val map : ('a -> 'b) -> 'a t -> 'b t
+  val fold : (SMap.key -> SMap.key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
 
-  val fold : (SMap.key -> SMap.key -> TMap.key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
-  val fold_tmap : (SMap.key -> SMap.key -> 'a TMap.t -> 'b -> 'b) -> 'a t -> 'b -> 'b
+  (** Specific functions *)
 
-  val of_dir : ?acc:Summary.Aggr.t t -> string -> Summary.Aggr.t t
+  val fold_data : (SMap.key -> SMap.key -> TMap.key -> Summary.Aggr.t -> 'b -> 'b) ->
+    Summary.t t -> 'b -> 'b
+
+  val of_dir : ?acc:Summary.t t -> string -> Summary.t t
   (** [of_dir dn] is the db created from the .summary files found from
       the traversal of [dn]. *)
+
+  val save_hum : string -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
+  val output_hum : out_channel -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
 end
 
 module DB2 : sig

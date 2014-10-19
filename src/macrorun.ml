@@ -206,16 +206,17 @@ let summarize copts evts normalize csv selectors force =
   let data = List.fold_left (fun db dn -> DB.of_dir ~acc:db dn)
       DB.empty selectors in
 
-  (* Filter on user requested evts *)
-  let data = DB.map_tmap
-      (fun tm -> match evts with
-         | [] -> tm
-         | evts -> TMap.filter (fun t _ -> List.mem t evts) tm
+  (* Filter on requested evts *)
+  let data = DB.map
+      (fun smry -> match evts with
+         | [] -> smry
+         | evts ->
+             Summary.{ smry with data = TMap.filter (fun t _ -> List.mem t evts) smry.data }
       )
       data in
 
   (* Create the DB2 from DB *)
-  let data = DB.fold
+  let data = DB.fold_data
       (fun bench context_id topic measure a ->
          DB2.add topic bench context_id measure a
       )
@@ -238,7 +239,92 @@ let summarize copts evts normalize csv selectors force =
     | `Channel oc -> DB2.to_csv oc data
     | `File fn -> Util.File.with_oc_safe (fun oc -> DB2.to_csv oc data) fn
 
-let rank copts evts normalize csv context_ids = ()
+let rank copts evts normalize csv context_ids =
+  Summary.summarize_dir Util.FS.cache_dir;
+  let evts = List.map Topic.of_string evts in
+
+  (* Create database *)
+  let data = DB.of_dir Util.FS.cache_dir in
+
+  (* Filter on requested evts *)
+  let data = DB.map
+      (fun smry -> match evts with
+         | [] -> smry
+         | evts ->
+             Summary.{ smry with data = TMap.filter (fun t _ -> List.mem t evts) smry.data }
+      )
+      data in
+
+  (* Filter on requested context_ids. If unspecified, take all. *)
+  let data =
+    if context_ids = [] then data
+    else
+      let context_ids = SSet.of_list context_ids in
+      SMap.map
+        (fun ctxmap -> SMap.filter (fun k _ -> SSet.mem k context_ids) ctxmap)
+        data
+  in
+
+  (* Flip the order bench, context_id in the DB. *)
+  let data = DB.fold (fun b c tmap -> DB.add c b tmap) data DB.empty in
+
+  let () = if data = DB.empty then exit 0 else () in
+
+  (* Now data is ordered context_id, bench, topics map *)
+  (* Compute the intersection of benchmarks done *)
+  let common_benchs =
+    let init_acc = SMap.(SSet.of_list @@ List.map fst @@ bindings @@ snd @@ min_binding data) in
+    SMap.fold (fun k v a ->
+        SSet.(inter a @@ of_list @@ List.map fst @@ SMap.bindings v)
+      )
+      data init_acc in
+
+  let () = if common_benchs = SSet.empty then
+      (Printf.eprintf
+         "Impossible to rank the requested compilers, because the intersection \
+          of benchmarks that have been run on each compiler is empty.\n";
+       exit 1
+      ) else () in
+
+  (* Filter on common benchs *)
+  let data = SMap.map
+      (fun benchmap ->
+         SMap.filter (fun k _ -> SSet.mem k common_benchs) benchmap)
+      data
+  in
+
+  (* Now data contains exactly what we want, i.e. the ctx_ids we
+     want / the common benchmarks / the topics we selected: generate
+     results *)
+
+  let data = DB.map
+      (fun smry ->
+         let open Summary in
+         let ss = TMap.bindings smry.data in
+         let ss = List.map (fun (_, aggr) -> aggr.Aggr.mean) ss in
+         Statistics.geometric_mean ss, smry.weight
+      )
+      data
+  in
+  let data = SMap.map
+      (fun benchmap ->
+         SMap.fold
+           (fun bench (mean, weight) (prod, sumw) ->
+              prod *. mean, sumw +. weight
+           )
+           benchmap (1.,0.))
+      data
+  in
+  let print_results oc =
+    SMap.iter
+      (fun k v -> Printf.fprintf oc "%s,%f\n" k v)
+    @@
+    SMap.map (fun (prod, sumw) -> prod ** (1. /. sumw)) data
+  in
+  match copts.output with
+  | `None -> print_results stdout
+  | `Channel oc -> print_results oc
+  | `File fn -> Util.File.with_oc_safe print_results fn
 
 open Cmdliner
 
