@@ -98,7 +98,8 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch context_id selectors =
+let run copts switch context_id selectors skip_benchs =
+  let skip_benchs = SSet.of_list skip_benchs in
   let share = Util.Opam.share ?switch () in
   let interactive = copts.output = `None in
 
@@ -115,9 +116,11 @@ let run copts switch context_id selectors =
      a directory, run all benchmarks in the directory *)
   let rec run_inner selector =
     let run_bench filename =
-      let b = Util.File.sexp_of_file_exn filename Benchmark.t_of_sexp in
-      let res = Runner.run_exn ?context_id ~interactive b in
-      write_res_copts copts res
+      let b = Benchmark.load_conv_exn filename in
+      if not @@ SSet.mem b.Benchmark.name skip_benchs
+      then
+        let res = Runner.run_exn ?context_id ~interactive b in
+        write_res_copts copts res
     in
     match kind_of_file selector with
     | `Noent ->
@@ -166,7 +169,9 @@ let list switch =
        Util.FS.ls selector
        |> List.map (Filename.concat selector)
        |> List.filter is_benchmark_file
-       |> List.iter (fun s -> Format.printf "%s@." s))
+       |> List.iter (fun fn ->
+           let b = Benchmark.load_conv_exn fn in
+           Format.printf "@[<h>%s@ %s@]@." b.Benchmark.name fn))
 
 (* [selectors] are bench _names_ *)
 let summarize copts evts normalize csv selectors force =
@@ -422,6 +427,10 @@ let switch =
   Arg.(value & opt (some string) None & info ["s"; "switch"] ~docv:"string" ~doc)
 
 let run_cmd =
+  let skip_benchs =
+    let doc = "List of bench not to run." in
+    Arg.(value & opt (list string) [] & info ["skip"] ~docv:"benchmark list" ~doc)
+  in
   let context_id =
     let doc = "Use the specified context_id when writing benchmark results, \
               instead of the switch name." in
@@ -440,7 +449,7 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ context_id $ selector),
+  Term.(pure run $ copts_t $ switch $ context_id $ selector $ skip_benchs),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 let list_cmd =

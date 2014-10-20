@@ -424,11 +424,18 @@ module Benchmark = struct
       ?env ~speed ?(timeout=600) ?(weight=1.) ~topics () =
     { name; descr; cmd; cmd_check; env; speed; timeout; weight; topics; }
 
-  let save_hum fn s=
+  let load_conv fn =
+    Sexplib.Sexp.load_sexp_conv fn t_of_sexp
+
+  let load_conv_exn fn =
+    Sexplib.Sexp.load_sexp_conv_exn fn t_of_sexp
+
+  let save_hum fn s =
     sexp_of_t s |> Sexplib.Sexp.save_hum fn
 
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
+
 end
 
 module Result = struct

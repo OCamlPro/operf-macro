@@ -152,6 +152,11 @@ module Benchmark : sig
     unit ->
     t
 
+  (** I/O *)
+
+  val load_conv : string -> t Sexplib.Sexp.Annotated.conv
+  val load_conv_exn : string -> t
+
   val save_hum : string -> t -> unit
   val output_hum : out_channel -> t -> unit
 end
