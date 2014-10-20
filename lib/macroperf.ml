@@ -77,7 +77,7 @@ module Util = struct
     let lines_of_ic ic =
       let rec get_line acc = match input_line ic with
         | line -> get_line (line::acc)
-        | exception End_of_file -> acc
+        | exception End_of_file -> List.rev acc
       in get_line []
 
     let string_of_file filename =
@@ -122,15 +122,24 @@ module Util = struct
   end
 
   module Cmd = struct
-    let stdout_of_cmd cmd_string =
-    let ic = Unix.open_process_in cmd_string in
-    try
-      let res = File.string_of_ic ic in Unix.close_process_in ic, res
-    with exn ->
-      let _ = Unix.close_process_in ic in raise exn
+    let with_process_in_safe f cmd_string =
+      let p_stdout = Unix.open_process_in cmd_string in
+      try
+        let res = f p_stdout in Unix.close_process_in p_stdout, res
+      with exn ->
+        let _ = Unix.close_process_in p_stdout in raise exn
+
+    let with_process_full_safe f cmd_string =
+      let p_stdout, p_stdin = Unix.open_process cmd_string in
+      try
+        let res = f p_stdout p_stdin in Unix.close_process (p_stdout, p_stdin), res
+      with exn ->
+        let _ = Unix.close_process (p_stdout, p_stdin) in raise exn
+
+    let lines_of_cmd cmd_string = with_process_in_safe File.lines_of_ic cmd_string
 
     let path_of_exe n =
-      snd @@ stdout_of_cmd @@ "command -v " ^ n
+      List.hd @@ snd @@ lines_of_cmd @@ "command -v " ^ n
   end
 
   module Opam = struct
@@ -453,6 +462,12 @@ module Result = struct
     | `Stderr ->
         { t with execs = List.map (Execution.strip `Stderr) t.execs }
 
+  let load_conv fn =
+    Sexplib.Sexp.load_sexp_conv fn t_of_sexp
+
+  let load_conv_exn fn =
+    Util.File.sexp_of_file_exn fn t_of_sexp
+
   let save_hum fn s=
     sexp_of_t s |> Sexplib.Sexp.save_hum fn
 
@@ -520,7 +535,11 @@ module Summary = struct
     let result = Util.File.sexp_of_file_exn fn Result.t_of_sexp in
     of_result result
 
-  let load fn = Util.File.sexp_of_file_exn fn t_of_sexp
+  let load_conv fn =
+    Sexplib.Sexp.load_sexp_conv fn t_of_sexp
+
+  let load_conv_exn fn =
+    Util.File.sexp_of_file_exn fn t_of_sexp
 
   let save_hum fn s=
     sexp_of_t s |> Sexplib.Sexp.save_hum fn
@@ -590,7 +609,7 @@ module DB = struct
     let open Summary in
     fold_dir
       (fun db fn ->
-         let s = load fn in
+         let s = load_conv_exn fn in
          add s.name s.context_id s db
       )
       acc dn

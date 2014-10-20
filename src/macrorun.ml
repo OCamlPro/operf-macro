@@ -98,10 +98,23 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch context_id selectors skip_benchs =
+let run copts switch context_id selectors skip_benchs force =
   let skip_benchs = SSet.of_list skip_benchs in
   let share = Util.Opam.share ?switch () in
   let interactive = copts.output = `None in
+
+  let already_run ?switch b =
+    let switch =
+      match switch with
+      | None -> Util.Opam.switch
+      | Some sw -> sw in
+    match
+      Result.load_conv @@
+      Util.FS.(cache_dir / b.Benchmark.name / switch ^ ".result")
+    with
+    | `Result _ -> true
+    | _ -> false
+  in
 
   (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
   let infered_selectors = match selectors with
@@ -117,8 +130,12 @@ let run copts switch context_id selectors skip_benchs =
   let rec run_inner selector =
     let run_bench filename =
       let b = Benchmark.load_conv_exn filename in
-      if not @@ SSet.mem b.Benchmark.name skip_benchs
+      if SSet.mem b.Benchmark.name skip_benchs
+      || (already_run ?switch b && not force)
       then
+        (if interactive then
+          Printf.printf "Skipping %s\n" b.Benchmark.name)
+      else
         let res = Runner.run_exn ?context_id ~interactive b in
         write_res_copts copts res
     in
@@ -427,13 +444,17 @@ let switch =
   Arg.(value & opt (some string) None & info ["s"; "switch"] ~docv:"string" ~doc)
 
 let run_cmd =
+  let force =
+    let doc = "Force the execution of benchmarks even if \
+               a result file is already present in the file system." in
+    Arg.(value & flag & info ["f"; "force"] ~doc) in
   let skip_benchs =
     let doc = "List of bench not to run." in
     Arg.(value & opt (list string) [] & info ["skip"] ~docv:"benchmark list" ~doc)
   in
   let context_id =
     let doc = "Use the specified context_id when writing benchmark results, \
-              instead of the switch name." in
+               instead of the switch name." in
     Arg.(value & opt (some string) None & info ["c"; "cid"] ~docv:"string" ~doc)
   in
   let selector =
@@ -449,7 +470,7 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ context_id $ selector $ skip_benchs),
+  Term.(pure run $ copts_t $ switch $ context_id $ selector $ skip_benchs $ force),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 let list_cmd =
@@ -476,7 +497,7 @@ let normalize =
 
 let csv =
   let doc = "Output in CSV format." in
-  Arg.(value & flag & info ["csv"] ~docv:"boolean" ~doc)
+  Arg.(value & flag & info ["csv"] ~doc)
 
 let summarize_cmd =
   let force =

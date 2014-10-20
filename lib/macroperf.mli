@@ -43,7 +43,6 @@ module Util : sig
   end
 
   module Cmd : sig
-    val stdout_of_cmd : string -> Unix.process_status * string
     val path_of_exe : string -> string
   end
 
@@ -227,6 +226,11 @@ module Result : sig
   (** [strip t chan] is a result where the output of the program
       executions in [chan] have been disabled. *)
 
+  (** I/O *)
+
+  val load_conv : string -> t Sexplib.Sexp.Annotated.conv
+  val load_conv_exn : string -> t
+
   val save_hum : string -> t -> unit
   val output_hum : out_channel -> t -> unit
 end
@@ -273,7 +277,10 @@ module Summary : sig
   (** I/O *)
 
   val load_from_result : string -> t
-  val load : string -> t
+
+  val load_conv : string -> t Sexplib.Sexp.Annotated.conv
+  val load_conv_exn : string -> t
+
   val save_hum : string -> t -> unit
   val output_hum : out_channel -> t -> unit
 
