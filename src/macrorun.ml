@@ -99,6 +99,11 @@ let is_benchmark_file filename =
   Filename.check_suffix filename ".bench"
 
 let run copts switch context_id selectors skip_benchs force =
+  (** If switch is specified but not context_id, the context_id =
+      switch *)
+  let context_id = match context_id, switch with
+    | None, Some s -> Some s
+    | _ -> context_id in
   let skip_benchs = SSet.of_list skip_benchs in
   let share = Util.Opam.share ?switch () in
   let interactive = copts.output = `None in
@@ -114,6 +119,7 @@ let run copts switch context_id selectors skip_benchs force =
     with
     | `Result _ -> true
     | _ -> false
+    | exception Sys_error _ -> false
   in
 
   (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
@@ -181,14 +187,30 @@ let list switch =
   Util.FS.ls share
   |> List.map (fun n -> Filename.concat share n)
   |> List.filter (fun n -> kind_of_file n = `Directory)
-  |> List.iter
+  |> List.map
     (fun selector ->
-       Util.FS.ls selector
-       |> List.map (Filename.concat selector)
-       |> List.filter is_benchmark_file
-       |> List.iter (fun fn ->
-           let b = Benchmark.load_conv_exn fn in
-           Format.printf "@[<h>%s@ %s@]@." b.Benchmark.name fn))
+       let bench_files =
+         Util.FS.ls selector
+         |> List.map (Filename.concat selector)
+         |> List.filter is_benchmark_file
+       in
+       let bench_names = List.map
+           (fun fn -> Benchmark.(let b = load_conv_exn fn in b.name))
+           bench_files in
+       List.combine bench_names bench_files
+    )
+  |> List.flatten
+  |> (fun files_names ->
+      let max_name_len = List.fold_left
+          (fun a (n,fn) ->
+             let len = String.length n in
+             if len > a then len else a)
+          0 files_names
+      in
+      List.iter (fun (n,fn) ->
+          Printf.printf "%-*s %s\n" max_name_len n fn
+        ) files_names
+    )
 
 (* [selectors] are bench _names_ *)
 let summarize copts evts normalize csv selectors force =
