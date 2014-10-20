@@ -426,18 +426,19 @@ module Benchmark = struct
     speed: speed with default(`Fast);
     timeout: int with default(600);
     weight: float with default(1.);
+    discard: [`Stdout | `Stderr] list with default([]);
     topics: Topic.t list;
   } with sexp
 
   let make ~name ?descr ~cmd ?(cmd_check=[])
-      ?env ~speed ?(timeout=600) ?(weight=1.) ~topics () =
-    { name; descr; cmd; cmd_check; env; speed; timeout; weight; topics; }
+      ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
+    { name; descr; cmd; cmd_check; env; speed; timeout; weight; discard; topics; }
 
   let load_conv fn =
     Sexplib.Sexp.load_sexp_conv fn t_of_sexp
 
   let load_conv_exn fn =
-    Sexplib.Sexp.load_sexp_conv_exn fn t_of_sexp
+    Util.File.sexp_of_file_exn fn t_of_sexp
 
   let save_hum fn s =
     sexp_of_t s |> Sexplib.Sexp.save_hum fn
@@ -449,12 +450,19 @@ end
 
 module Result = struct
   type t = {
-    src: Benchmark.t;
+    bench: Benchmark.t;
     context_id: string;
     execs: Execution.t list;
   } with sexp
 
-  let make ~src ?(context_id="") ~execs () = { src; context_id; execs; }
+  let make ~bench ?(context_id="") ~execs () =
+    let execs = List.map
+        (fun e -> List.fold_left
+            (fun a ch -> Execution.strip ch a)
+            e bench.Benchmark.discard
+        )
+        execs in
+    { bench; context_id; execs; }
 
   let strip chan t = match chan with
     | `Stdout ->
@@ -516,9 +524,9 @@ module Summary = struct
     let data = data
                |> TMap.lmerge
                |> TMap.map @@ Aggr.of_measures in
-    { name = r.src.Benchmark.name;
+    { name = r.bench.Benchmark.name;
       context_id = r.Result.context_id;
-      weight = r.src.Benchmark.weight;
+      weight = r.bench.Benchmark.weight;
       data;
     }
 
@@ -929,5 +937,5 @@ module Runner = struct
 
     (* Cleanup temporary directory *)
     Util.FS.rm_r temp_dir;
-    Result.make ~context_id ~src:b ~execs ()
+    Result.make ~context_id ~bench:b ~execs ()
 end

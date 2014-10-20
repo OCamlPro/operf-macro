@@ -132,6 +132,9 @@ module Benchmark : sig
     weight: float;
     (** Used to specify the relative importance of this benchmark
         compared to others (default: 1.) *)
+    discard: [`Stdout | `Stderr] list;
+    (** The runner will discard the output of specified channels in
+        the result. *)
     topics: Topic.t list;
     (** Set of quantities to measure *)
   }
@@ -147,6 +150,7 @@ module Benchmark : sig
     speed:speed ->
     ?timeout:int ->
     ?weight:float ->
+    ?discard:[`Stdout | `Stderr] list ->
     topics:Topic.t list ->
     unit ->
     t
@@ -198,7 +202,7 @@ end
 
 module Result : sig
   type t = {
-    src: Benchmark.t;
+    bench: Benchmark.t;
     (** The benchmark used to produce this result *)
     context_id: string;
     (** A unique identifier for the context used to produce the
@@ -217,7 +221,7 @@ module Result : sig
   include Sexpable.S with type t := t
 
   val make :
-    src:Benchmark.t ->
+    bench:Benchmark.t ->
     ?context_id:string ->
     execs:Execution.t list -> unit ->
     t

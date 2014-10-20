@@ -20,7 +20,7 @@ let write_res_copts copts res =
 
   (* Write the result in cache too if cache exists *)
   let rex = Re_pcre.regexp " " in
-  let name = res.Result.src.Benchmark.name |> String.trim in
+  let name = res.Result.bench.Benchmark.name |> String.trim in
   let name = Re_pcre.substitute ~rex ~subst:(fun _ -> "_") name in
   try
     let res_file =
