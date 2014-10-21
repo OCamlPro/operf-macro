@@ -419,10 +419,10 @@ module Benchmark = struct
 
   type t = {
     name: string;
-    descr: string option;
+    descr: string with default("");
     cmd: string list;
-    cmd_check: string list;
-    env: string list option;
+    cmd_check: string list with default([]);
+    env: string list option with default(None);
     speed: speed with default(`Fast);
     timeout: int with default(600);
     weight: float with default(1.);
@@ -430,7 +430,7 @@ module Benchmark = struct
     topics: Topic.t list;
   } with sexp
 
-  let make ~name ?descr ~cmd ?(cmd_check=[])
+  let make ~name ?(descr="") ~cmd ?(cmd_check=[])
       ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
     { name; descr; cmd; cmd_check; env; speed; timeout; weight; discard; topics; }
 

@@ -114,8 +114,8 @@ module Benchmark : sig
     name: string;
     (** Identifier for a benchmark, should be unique amongst
         benchmarks *)
-    descr: string option;
-    (** Optional description of the benchmark *)
+    descr: string;
+    (** Description of the benchmark *)
     cmd: string list;
     (** Command line to run the benchmark. The first item of the list
         is the full path of the benchmark executable, or its name if in
