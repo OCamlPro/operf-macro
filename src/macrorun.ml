@@ -213,7 +213,7 @@ let list switch =
     )
 
 (* [selectors] are bench _names_ *)
-let summarize copts evts normalize csv selectors force =
+let summarize copts evts normalize csv selectors force ctx_ids =
   let evts =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
@@ -249,6 +249,15 @@ let summarize copts evts normalize csv selectors force =
   (* Create the DB *)
   let data = List.fold_left (fun db dn -> DB.of_dir ~acc:db dn)
       DB.empty selectors in
+
+  (* Filter on context ids *)
+  let data = match ctx_ids with
+    | [] -> data
+    | ctx_ids ->
+        let ctx_ids = SSet.of_list ctx_ids in
+        SMap.map
+          (SMap.filter (fun ctx _ -> SSet.mem ctx ctx_ids))
+          data in
 
   (* Filter on requested evts *)
   let data = DB.map
@@ -512,6 +521,10 @@ let generalized_evts =
              perf events, times... (default: all topics)." in
   Arg.(value & opt (list string) [] & info ["e"; "event"] ~docv:"evts" ~doc)
 
+let context_ids =
+  let doc = "context_ids to select" in
+  Arg.(value & opt (list string) [] & info ["c";"ctxs"] ~docv:"string list" ~doc)
+
 let normalize =
   let doc = "Normalize against the value of a context_id (compiler)." in
   Arg.(value & opt ~vopt:(Some "") (some string) None &
@@ -537,13 +550,10 @@ let summarize_cmd =
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ generalized_evts $ normalize $ csv $ selector $ force),
+  Term.(pure summarize $ copts_t $ generalized_evts $ normalize $ csv $ selector $ force $ context_ids),
   Term.info "summarize" ~doc ~man
 
 let rank_cmd =
-  let context_ids =
-    let doc = "context_ids to rank" in
-    Arg.(value & pos_all string [] & info [] ~docv:"string" ~doc) in
   let doc = "Produce an aggregated performance index for the desired compilers." in
   let man = [
     `S "DESCRIPTION";
