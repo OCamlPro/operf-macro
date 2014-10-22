@@ -923,7 +923,7 @@ module Runner = struct
     perf: SSet.t;
   }
 
-  let run_exn ?(use_perf=true) ?(context_id=Util.Opam.switch) ~interactive b =
+  let run_exn ?(use_perf=false) ?(context_id=Util.Opam.switch) ~interactive b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
