@@ -104,13 +104,9 @@ let run copts switch context_id selectors skip_benchs force =
     | exception Sys_error _ -> false
   in
 
-  (* If no selectors, $OPAMROOT/$SWITCH/share/* become the selectors *)
+  (* If no selectors, all installed benchmarks are selected. *)
   let infered_selectors = match selectors with
-    | [] ->
-        let names = Util.FS.ls share in
-        let names = List.map (fun n -> Filename.concat share n) names in
-        List.filter (fun n -> kind_of_file n = `Directory)
-          names
+    | [] -> List.map snd @@ Benchmark.find_installed ?switch ()
     | selectors -> selectors
   in
   (* If selector is a file, run the benchmark in the file, if it is
@@ -129,12 +125,18 @@ let run copts switch context_id selectors skip_benchs force =
     in
     match kind_of_file selector with
     | `Noent ->
-        (* Not found, but can be an OPAM package name... *)
-        (match kind_of_file Filename.(concat share selector) with
-         | `Noent | `File | `Other_kind ->
-             Printf.eprintf "Warning: No benchmark found in %s.\n"
-               Filename.(concat share selector)
-         | `Directory -> run_inner Filename.(concat share selector))
+        (* Not found, but can be a benchmark or OPAM package
+           name... *)
+        (* If it is the name of a benchmark, run the benchmark with
+           the corresponding name*)
+        (try
+           run_inner @@ List.assoc selector @@ Benchmark.find_installed ?switch ()
+         with Not_found ->
+           (match kind_of_file Filename.(concat share selector) with
+            | `Noent | `File | `Other_kind ->
+                Printf.eprintf "Warning: %s is neither an OPAM package nor a benchmark name.\n"
+                  selector
+            | `Directory -> run_inner Filename.(concat share selector)))
     | `Other_kind ->
         Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector
     | `Directory ->
