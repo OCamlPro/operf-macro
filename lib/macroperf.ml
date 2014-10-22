@@ -167,127 +167,127 @@ module Util = struct
 end
 
 module Topic = struct
-  type time = Real | User | Sys with sexp
-  let time_of_string = function
-    | "real" -> Real
-    | "user" -> User
-    | "sys" -> Sys
-    | _ -> invalid_arg "time_of_string"
+  module Time = struct
+    type t = Real | User | Sys with sexp
+    let of_string = function
+      | "real" -> Real
+      | "user" -> User
+      | "sys" -> Sys
+      | _ -> invalid_arg "time_of_string"
 
-  let string_of_time = function
-    | Real -> "real"
-    | User -> "user"
-    | Sys -> "sys"
+    let to_string = function
+      | Real -> "real"
+      | User -> "user"
+      | Sys -> "sys"
 
-  type gc =
-    | Minor_words
-    | Promoted_words
-    | Major_words
-    | Minor_collections
-    | Major_collections
-    | Heap_words
-    | Heap_chunks
-    | Top_heap_words
-    | Live_words
-    | Live_blocks
-    | Free_words
-    | Free_blocks
-    | Largest_free
-    | Fragments
-    | Compactions
-  with sexp
+    let compare = compare
+  end
 
-  let gc_of_string_exn : string -> gc = function
-    | "minor_words"       -> Minor_words
-    | "promoted_words"    -> Promoted_words
-    | "major_words"       -> Major_words
-    | "minor_collections" -> Minor_collections
-    | "major_collections" -> Major_collections
-    | "heap_words"        -> Heap_words
-    | "heap_chunks"       -> Heap_chunks
-    | "top_heap_words"    -> Top_heap_words
-    | "live_words"        -> Live_words
-    | "live_blocks"       -> Live_blocks
-    | "free_words"        -> Free_words
-    | "free_blocks"       -> Free_blocks
-    | "largest_free"      -> Largest_free
-    | "fragments"         -> Fragments
-    | "compactions"       -> Compactions
-    | _ -> invalid_arg "gc_of_string_exn"
+  module TimeSet = Set.Make(Time)
 
-  let gc_of_string s = try Some (gc_of_string_exn s) with _ -> None
+  module Gc = struct
+    type t =
+      | Minor_words
+      | Promoted_words
+      | Major_words
+      | Minor_collections
+      | Major_collections
+      | Heap_words
+      | Heap_chunks
+      | Top_heap_words
+      | Live_words
+      | Live_blocks
+      | Free_words
+      | Free_blocks
+      | Largest_free
+      | Fragments
+      | Compactions
+    with sexp
 
-  let string_of_gc = function
-    | Minor_words -> "minor_words"
-    | Promoted_words -> "promoted_words"
-    | Major_words -> "major_words"
-    | Minor_collections -> "minor_collections"
-    | Major_collections -> "major_collections"
-    | Heap_words -> "heap_words"
-    | Heap_chunks -> "heap_chunks"
-    | Top_heap_words -> "top_heap_words"
-    | Live_words -> "live_words"
-    | Live_blocks -> "live_blocks"
-    | Free_words -> "free_words"
-    | Free_blocks -> "free_blocks"
-    | Largest_free -> "largest_free"
-    | Fragments -> "fragments"
-    | Compactions -> "compactions"
+    let of_string_exn : string -> t = function
+      | "minor_words"       -> Minor_words
+      | "promoted_words"    -> Promoted_words
+      | "major_words"       -> Major_words
+      | "minor_collections" -> Minor_collections
+      | "major_collections" -> Major_collections
+      | "heap_words"        -> Heap_words
+      | "heap_chunks"       -> Heap_chunks
+      | "top_heap_words"    -> Top_heap_words
+      | "live_words"        -> Live_words
+      | "live_blocks"       -> Live_blocks
+      | "free_words"        -> Free_words
+      | "free_blocks"       -> Free_blocks
+      | "largest_free"      -> Largest_free
+      | "fragments"         -> Fragments
+      | "compactions"       -> Compactions
+      | _ -> invalid_arg "gc_of_string_exn"
+
+    let of_string s = try Some (of_string_exn s) with _ -> None
+
+    let to_string = function
+      | Minor_words -> "minor_words"
+      | Promoted_words -> "promoted_words"
+      | Major_words -> "major_words"
+      | Minor_collections -> "minor_collections"
+      | Major_collections -> "major_collections"
+      | Heap_words -> "heap_words"
+      | Heap_chunks -> "heap_chunks"
+      | Top_heap_words -> "top_heap_words"
+      | Live_words -> "live_words"
+      | Live_blocks -> "live_blocks"
+      | Free_words -> "free_words"
+      | Free_blocks -> "free_blocks"
+      | Largest_free -> "largest_free"
+      | Fragments -> "fragments"
+      | Compactions -> "compactions"
+
+    let compare = compare
+  end
+
+  module GcSet = Set.Make(Gc)
 
   type _ kind =
     (* Time related *)
-    | Time : time kind
+    | Time : Time.t kind
 
     (* GC related *)
-    | Gc : gc kind
+    | Gc : Gc.t kind
 
-    (* Use the ocaml-perf binding to perf_event_open(2). *)
-    | Libperf : Perf.Attr.Kind.t kind
-
-    (* Use the perf-stat(1) command (need the perf binary, linux
-       only) *)
+    (* Use the perf-stat(1) command or ocaml-libperf *)
     | Perf : string kind
 
   type t = Topic : 'a * 'a kind -> t
 
   let of_string s =
-    try Topic (gc_of_string_exn s, Gc)
+    try Topic (Gc.of_string_exn s, Gc)
     with _ ->
-      try Topic (Perf.Attr.Kind.t_of_sexp
-                   Sexplib.Sexp.(Atom (String.capitalize s)), Libperf)
+      try Topic (s, Perf)
       with _ ->
         (match s with
-         | "time_real" -> Topic (Real, Time)
-         | "time_sys" -> Topic (Sys, Time)
-         | "time_user" -> Topic (User, Time)
+         | "time_real" -> Topic (Time.Real, Time)
+         | "time_sys" -> Topic (Time.Sys, Time)
+         | "time_user" -> Topic (Time.User, Time)
          | _ -> invalid_arg "Topic.of_string"
         )
 
   let to_string t =
     match t with
-    | Topic (t, Time) -> "time_" ^ string_of_time t
-    | Topic (gc, Gc) -> string_of_gc gc
+    | Topic (t, Time) -> "time_" ^ Time.to_string t
+    | Topic (gc, Gc) -> Gc.to_string gc
     | Topic (p, Perf) -> p
-    | Topic (lp, Libperf) ->
-        Sexplib.Sexp.(match Perf.Attr.Kind.sexp_of_t lp with
-            | Atom s -> String.uncapitalize s
-            | _ -> invalid_arg "Topic.to_string"
-        )
 
   let sexp_of_t t =
     let open Sexplib.Sexp in
     match t with
-    | Topic (time, Time) -> List [Atom "Time"; sexp_of_time time]
-    | Topic (gc, Gc) -> List [Atom "Gc"; sexp_of_gc gc]
-    | Topic (libperf, Libperf) -> List [Atom "Libperf"; Perf.Attr.Kind.sexp_of_t libperf]
+    | Topic (time, Time) -> List [Atom "Time"; Time.sexp_of_t time]
+    | Topic (gc, Gc) -> List [Atom "Gc"; Gc.sexp_of_t gc]
     | Topic (perf, Perf) -> List [Atom "Perf"; sexp_of_string perf]
 
   let t_of_sexp s =
     let open Sexplib.Sexp in
     match s with
-    | List [Atom "Time"; t] -> Topic (time_of_sexp t, Time)
-    | List [Atom "Gc"; t] -> Topic (gc_of_sexp t, Gc)
-    | List [Atom "Libperf"; t] -> Topic (Perf.Attr.Kind.t_of_sexp t, Libperf)
+    | List [Atom "Time"; t] -> Topic (Time.t_of_sexp t, Time)
+    | List [Atom "Gc"; t] -> Topic (Gc.t_of_sexp t, Gc)
     | List [Atom "Perf"; t] -> Topic (string_of_sexp t, Perf)
     | _ -> invalid_arg "t_of_sexp"
 
@@ -295,6 +295,16 @@ module Topic = struct
 end
 
 module SSet = Set.Make(String)
+
+module TSet = struct
+  include Set.Make(Topic)
+
+  let t_of_sexp s =
+    of_list @@ list_of_sexp Topic.t_of_sexp s
+
+  let sexp_of_t t =
+    elements t |> sexp_of_list Topic.sexp_of_t
+end
 
 module SMap = struct
   include Map.Make(String)
@@ -409,7 +419,7 @@ module Execution = struct
 
   let duration = function
     | `Ok e ->
-        TMap.find Topic.(Topic (Real, Time)) e.data |> Measure.to_int64
+        TMap.find Topic.(Topic (Time.Real, Time)) e.data |> Measure.to_int64
     | _ -> 0L
 end
 
@@ -427,12 +437,13 @@ module Benchmark = struct
     timeout: int with default(600);
     weight: float with default(1.);
     discard: [`Stdout | `Stderr] list with default([]);
-    topics: Topic.t list;
+    topics: TSet.t with default(TSet.singleton (Topic.(Topic("cycles", Perf))));
   } with sexp
 
   let make ~name ?(descr="") ~cmd ?(cmd_check=[])
       ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
-    { name; descr; cmd; cmd_check; env; speed; timeout; weight; discard; topics; }
+    { name; descr; cmd; cmd_check; env; speed; timeout; weight; discard;
+      topics = TSet.of_list topics; }
 
   let load_conv fn =
     Sexplib.Sexp.load_sexp_conv fn t_of_sexp
@@ -777,7 +788,7 @@ module Process = struct
     List.map
       (fun s ->
          let i = String.index s ':' in
-         let gc = Topic.gc_of_string_exn @@ String.sub s 0 i in
+         let gc = Topic.Gc.of_string_exn @@ String.sub s 0 i in
          let v = Int64.of_string @@ String.sub s (i+2) (String.length s - i - 2) in
          (Topic.(Topic (gc, Gc), Measure.of_int64 v))
       )
@@ -788,6 +799,7 @@ module Perf_wrapper = struct
   include Process
 
   let run_once ?env ?timeout ?chk_cmd cmd evts =
+    let evts = SSet.elements evts in
     let perf_cmdline = ["perf"; "stat"; "-x,"; ] in
     let perf_cmdline = match evts with
       | [] -> perf_cmdline
@@ -814,7 +826,7 @@ module Perf_wrapper = struct
       let gc_topics = (match Sys.file_exists "gc_stats" with
           | false -> []
           | true -> data_of_gc_stats ()) in
-      let time_topics = [Topic.(Topic (Real, Time),
+      let time_topics = [Topic.(Topic (Time.Real, Time),
                                 `Int Int64.(rem time_end time_start))] in
       let data = List.fold_left
           (fun acc l -> match l with
@@ -822,7 +834,7 @@ module Perf_wrapper = struct
              | [v; ""; event; _] ->
                  TMap.add Topic.(Topic (event, Perf)) (Measure.of_string v) acc
              | l ->
-                 Printf.printf
+                 Printf.eprintf
                    "Ignoring perf result line [%s]" (String.concat "," l);
                  acc
           ) TMap.empty stderr_lines in
@@ -846,23 +858,26 @@ module Perf_wrapper = struct
         Execution.error exn
 
   let run ?env ?timeout ?chk_cmd cmd evts =
-    run (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
+    (* if evts = SSet.empty then [] *)
+    (* else *)
+      run (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
 end
 
 module Libperf_wrapper = struct
   include Process
 
-  let run_once ?env ?timeout ?chk_cmd cmd attrs =
+  let run_once ?env ?timeout ?chk_cmd cmd evts =
     let open Perf in
+    let attrs = SSet.elements evts |> List.map Attr.Kind.of_string in
     let attrs = List.map Perf.Attr.make attrs in
     (* /!\ Perf.with_process <> Process.with_process, but similar /!\ *)
-    Perf.with_process
+    with_process
       ?env ?timeout ~stdout:"stdout" ~stderr:"stderr" cmd attrs |> function
     | `Ok {process_status; stdout; stderr; duration; data;} ->
         let data = KindMap.fold
-            (fun k v a -> TMap.add Topic.(Topic (k, Libperf)) (`Int v) a)
+            (fun k v a -> TMap.add Topic.(Topic (Attr.Kind.to_string k, Perf)) (`Int v) a)
             data TMap.empty in
-        let data = TMap.add Topic.(Topic ((Real, Time))) (`Int duration) data in
+        let data = TMap.add Topic.(Topic ((Time.Real, Time))) (`Int duration) data in
         let data = List.fold_left (fun a (k, v) -> TMap.add k v a)
             data
             (match Sys.file_exists "gc_stats" with
@@ -883,13 +898,12 @@ end
 
 module Runner = struct
   type execs = {
-    time: Topic.time list;
-    gc: Topic.gc list;
-    libperf: Perf.Attr.Kind.t list;
-    perf: string list;
+    time: Topic.TimeSet.t;
+    gc: Topic.GcSet.t;
+    perf: SSet.t;
   }
 
-  let run_exn ?(context_id=Util.Opam.switch) ~interactive b =
+  let run_exn ?(use_perf=true) ?(context_id=Util.Opam.switch) ~interactive b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
@@ -909,26 +923,24 @@ module Runner = struct
     (* Transform individial topics into a list of executions *)
     let execs =
       let open Topic in
-      List.fold_left
-        (fun a -> function
-           | Topic (t, Time) -> { a with time=t::a.time }
-           | Topic (t, Gc) -> { a with gc=t::a.gc }
-           | Topic (t, Libperf) -> { a with libperf=t::a.libperf }
-           | Topic (t, Perf) -> { a with perf=t::a.perf }
+      TSet.fold
+        (fun t a -> match t with
+           | Topic (t, Time) -> { a with time = TimeSet.add t a.time }
+           | Topic (t, Gc) -> { a with gc = GcSet.add t a.gc }
+           | Topic (t, Perf) -> { a with perf= SSet.add t a.perf }
         )
-        {time=[]; gc=[]; libperf=[]; perf=[];}
-        b.topics in
+        b.topics
+        { time = TimeSet.empty;
+          gc = GcSet.empty;
+          perf = SSet.empty;
+        }
+    in
 
-    let run_execs { time; gc; libperf; perf; } b =
-      (* Launch the executions only if the list of topics is
-         non-empty. *)
-      let libperf_res = match libperf with
-        | [] -> []
-        | libperf -> Libperf_wrapper.(run ~interactive ~env b.cmd libperf) in
-      let perf_res = match perf with
-        | [] -> []
-        | perf -> Perf_wrapper.(run ~interactive ~env b.cmd perf) in
-      (libperf_res @ perf_res)
+    let run_execs { time; gc; perf; } b =
+      if use_perf then
+        Perf_wrapper.(run ~interactive ~env b.cmd perf)
+      else
+        Libperf_wrapper.(run ~interactive ~env b.cmd perf)
     in
 
     if interactive then

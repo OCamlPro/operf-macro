@@ -66,39 +66,40 @@ module Util : sig
 end
 
 module Topic : sig
-  type time = Real | User | Sys
-  type gc =
-    Minor_words
-    | Promoted_words
-    | Major_words
-    | Minor_collections
-    | Major_collections
-    | Heap_words
-    | Heap_chunks
-    | Top_heap_words
-    | Live_words
-    | Live_blocks
-    | Free_words
-    | Free_blocks
-    | Largest_free
-    | Fragments
-    | Compactions
+  module Time : sig
+    type t = Real | User | Sys
+  end
 
-  val gc_of_string_exn : string -> gc
-  val gc_of_string : string -> gc option
+  module Gc : sig
+    type t =
+        Minor_words
+      | Promoted_words
+      | Major_words
+      | Minor_collections
+      | Major_collections
+      | Heap_words
+      | Heap_chunks
+      | Top_heap_words
+      | Live_words
+      | Live_blocks
+      | Free_words
+      | Free_blocks
+      | Largest_free
+      | Fragments
+      | Compactions
+
+    val of_string_exn : string -> t
+    val of_string : string -> t option
+  end
 
   type _ kind =
     (** Time related *)
-    | Time : time kind
+    | Time : Time.t kind
 
     (** GC related *)
-    | Gc : gc kind
+    | Gc : Gc.t kind
 
-    (** Use the ocaml-perf binding to perf_event_open(2). *)
-    | Libperf : Perf.Attr.Kind.t kind (** Refer to ocaml-perf for numbers *)
-
-    (** Use the perf-stat(1) command (need the perf binary, linux
-        only) *)
+    (** Use the perf-stat(1) command or ocaml-libperf *)
     | Perf : string kind
 
   type t =  Topic : 'a * 'a kind -> t
@@ -106,6 +107,11 @@ module Topic : sig
   val of_string : string -> t
   val to_string : t -> string
 end
+
+module SSet : Set.S with type elt = string
+module SMap : Map.S with type key = string
+module TSet : Set.S with type elt = Topic.t
+module TMap : Map.S with type key = Topic.t
 
 module Benchmark : sig
   type speed = [`Fast | `Slow | `Slower]
@@ -135,7 +141,7 @@ module Benchmark : sig
     discard: [`Stdout | `Stderr] list;
     (** The runner will discard the output of specified channels in
         the result. *)
-    topics: Topic.t list;
+    topics: TSet.t;
     (** Set of quantities to measure *)
   }
 
@@ -175,9 +181,6 @@ module Measure : sig
       cast of [msr_string]. *)
 end
 
-module SSet : Set.S with type elt = string
-module SMap : Map.S with type key = string
-module TMap : Map.S with type key = Topic.t
 
 module Execution : sig
   type exec = {
@@ -353,5 +356,5 @@ end
 
 
 module Runner : sig
-  val run_exn : ?context_id:string -> interactive:bool -> Benchmark.t -> Result.t
+  val run_exn : ?use_perf:bool -> ?context_id:string -> interactive:bool -> Benchmark.t -> Result.t
 end

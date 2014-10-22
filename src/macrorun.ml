@@ -63,25 +63,7 @@ let make_bench_and_run copts cmd bench_out topics =
   write_res_copts copts res
 
 let perf copts cmd evts bench_out =
-  (* Separate events from the event list given in PERF format *)
   let evts = List.map (fun e -> Topic.(Topic (e, Perf))) evts in
-  make_bench_and_run copts cmd bench_out evts
-
-let libperf copts cmd evts bench_out =
-  let rex = Re_pcre.regexp "-" in
-  let evts = try List.map
-      (fun s -> s
-                |> String.lowercase
-                |> String.capitalize
-                |> Re_pcre.substitute ~rex ~subst:(fun _ -> "_")
-                |> Sexplib.Std.sexp_of_string
-                |> fun s -> Topic.(Topic (Perf.Attr.Kind.t_of_sexp s, Libperf))
-      ) evts
-    with Invalid_argument "kind_of_sexp" ->
-      (Printf.eprintf
-         "At least one of the requested topics (-e) is invalid. Exiting.\n";
-       exit 1)
-  in
   make_bench_and_run copts cmd bench_out evts
 
 let kind_of_file filename =
@@ -461,15 +443,6 @@ let perf_cmd =
   Term.(pure perf $ copts_t $ cmd $ evts $ bench_out),
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
-let libperf_cmd =
-  let doc = "Macrobenchmark using the ocaml-perf library." in
-  let man = [
-    `S "DESCRIPTION";
-    `P "See <http://github.com/vbmithr/ocaml-perf>."] @ help_secs
-  in
-  Term.(pure libperf $ copts_t $ cmd $ evts $ bench_out),
-  Term.info "libperf" ~doc ~sdocs:copts_sect ~man
-
 let switch =
   let doc = "Look for benchmarks installed in another switch, instead of the current one." in
   Arg.(value & opt (some string) None & info ["s"; "switch"] ~docv:"string" ~doc)
@@ -563,7 +536,7 @@ let rank_cmd =
         info "rank" ~doc ~man)
 
 let cmds = [help_cmd; run_cmd; summarize_cmd; rank_cmd;
-            list_cmd; perf_cmd; libperf_cmd]
+            list_cmd; perf_cmd]
 
 let () = match Term.eval_choice ~catch:false default_cmd cmds with
   | `Error _ -> exit 1 | _ -> exit 0
