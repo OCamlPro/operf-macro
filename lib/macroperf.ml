@@ -261,7 +261,9 @@ module Topic = struct
   let of_string s =
     try Topic (Gc.of_string_exn s, Gc)
     with _ ->
-      try Topic (s, Perf)
+      try
+        let s = Perf.Attr.Kind.(of_string s |> to_string) in
+        Topic (s, Perf)
       with _ ->
         (match s with
          | "time_real" -> Topic (Time.Real, Time)
