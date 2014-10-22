@@ -168,6 +168,9 @@ module Benchmark : sig
 
   val save_hum : string -> t -> unit
   val output_hum : out_channel -> t -> unit
+
+  (** Filesystem *)
+  val find_installed : ?switch:string -> unit -> (string * string) list
 end
 
 module Measure : sig

@@ -457,6 +457,24 @@ module Benchmark = struct
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
 
+  let find_installed ?switch () =
+    let share = Util.Opam.share ?switch () in
+    Util.FS.ls share
+    |> List.map (fun n -> Filename.concat share n)
+    |> List.filter (fun n -> Unix.((stat n).st_kind = S_DIR))
+    |> List.map
+      (fun selector ->
+         let bench_files =
+           Util.FS.ls selector
+           |> List.map (Filename.concat selector)
+           |> List.filter (fun fn -> Filename.check_suffix fn ".bench")
+         in
+         let bench_names = List.map
+             (fun fn -> let b = load_conv_exn fn in b.name)
+             bench_files in
+         List.combine bench_names bench_files
+      )
+    |> List.flatten
 end
 
 module Result = struct

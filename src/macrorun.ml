@@ -165,24 +165,7 @@ let help man_format cmds topic = match topic with
           `Ok (Cmdliner.Manpage.print man_format Format.std_formatter page)
 
 let list switch =
-  let share = Util.Opam.share ?switch () in
-  Util.FS.ls share
-  |> List.map (fun n -> Filename.concat share n)
-  |> List.filter (fun n -> kind_of_file n = `Directory)
-  |> List.map
-    (fun selector ->
-       let bench_files =
-         Util.FS.ls selector
-         |> List.map (Filename.concat selector)
-         |> List.filter is_benchmark_file
-       in
-       let bench_names = List.map
-           (fun fn -> Benchmark.(let b = load_conv_exn fn in b.name))
-           bench_files in
-       List.combine bench_names bench_files
-    )
-  |> List.flatten
-  |> (fun files_names ->
+  let print files_names =
       let max_name_len = List.fold_left
           (fun a (n,fn) ->
              let len = String.length n in
@@ -192,7 +175,7 @@ let list switch =
       List.iter (fun (n,fn) ->
           Printf.printf "%-*s %s\n" max_name_len n fn
         ) files_names
-    )
+  in print @@ Benchmark.find_installed ?switch ()
 
 (* [selectors] are bench _names_ *)
 let summarize copts evts normalize csv selectors force ctx_ids =
