@@ -44,12 +44,13 @@ module Util = struct
       | S_DIR -> f (List.fold_left (fold f) acc @@ ls ~prefix:true n) n
       | _ -> f acc n
 
-    let rm_r n =
-      iter
-        Unix.(fun n -> match (stat n).st_kind with
-            | S_DIR -> rmdir n
-            | _ -> unlink n)
-        n
+    let rm_r fns =
+      List.iter
+        (iter
+           Unix.(fun n -> match (stat n).st_kind with
+               | S_DIR -> rmdir n
+               | _ -> unlink n)
+        ) fns
 
     let exists fn = try ignore (Unix.stat fn) = () with _ -> false
     let kind_exn fn = Unix.((stat fn).st_kind)
@@ -523,11 +524,14 @@ module Summary = struct
       maxi: float;
     } with sexp
 
+    let compare t1 t2 = Pervasives.compare t1.mean t2.mean
+    let min t1 t2 = if t1.mean <= t2.mean then t1 else t2
+    let max t1 t2 = if t1.mean >= t2.mean then t1 else t2
     let of_measures m =
       let measures_float = List.map Measure.to_float m in
       let mean, variance = Statistics.mean_variance measures_float in
       let maxi, mini = List.fold_left
-          (fun (ma, mi) v -> max v ma, min v mi)
+          (fun (ma, mi) v -> Pervasives.(max v ma, min v mi))
           (min_float, max_float) measures_float in
       { mean; stddev = sqrt variance; mini; maxi; }
 
@@ -536,7 +540,12 @@ module Summary = struct
       { mean=1.; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
 
     (* t1 / t2 *)
-    let normalize2 t1 t2 = { t1 with mean = t1.mean /. t2.mean }
+    let normalize2 t1 t2 =
+      { mean = t1.mean /. t2.mean;
+        stddev = t1.stddev /. t2.mean;
+        mini = t1.mini /. t2.mean;
+        maxi = t1.maxi /. t2.mean;
+      }
   end
 
   type t = {
@@ -685,11 +694,32 @@ module DB2 = struct
           v a)
       t a
 
+  let normalize ?against t =
+    let normalize_smap ?against smap =
+      match against with
+      | Some (`Ctx context_id) ->
+          (try
+            let normal_aggr = SMap.find context_id smap in
+            Some (SMap.map (fun a -> Summary.Aggr.normalize2 a normal_aggr) smap)
+          with Not_found -> None)
+      | Some `Biggest ->
+          (
+            let biggest = SMap.fold
+                (fun k v a -> Summary.Aggr.max v a)
+                smap (snd @@ SMap.min_binding smap)
+            in
+            Some (SMap.map (fun a -> Summary.Aggr.normalize2 a biggest) smap)
+          )
+      | None -> Some (SMap.map Summary.Aggr.normalize smap)
+    in
+    TMap.map (fun v -> SMap.filter_map (fun v -> normalize_smap ?against v) v) t
+
   let context_ids db =
     fold (fun _ _ ctx _ a -> SSet.add ctx a) db SSet.empty
 
   let add_missing_ctx db =
     let ctx_ids = context_ids db in
+    let nb_ctxs = SSet.cardinal ctx_ids in
     let db = map (fun ctxmap -> SMap.map (fun aggr -> Some aggr) ctxmap) db in
     map (fun ctxmap ->
         SSet.fold (fun ctx ctxmap ->
@@ -697,48 +727,38 @@ module DB2 = struct
               (try SMap.find ctx ctxmap with Not_found -> None)
               ctxmap)
           ctx_ids ctxmap)
-      db
-
-  let normalize ?context_id t =
-    let normalize_smap ?context_id smap =
-      match context_id with
-      | Some context_id ->
-          (try
-            let normal_aggr = SMap.find context_id smap in
-            Some (SMap.map (fun a -> Summary.Aggr.normalize2 a normal_aggr) smap)
-          with Not_found -> None)
-      | None -> Some (SMap.map Summary.Aggr.normalize smap)
-    in
-    TMap.map (fun v -> SMap.filter_map (fun v -> normalize_smap ?context_id v) v) t
+      db, nb_ctxs
 
   let to_csv ?(sep=",") oc ?topic db =
     let print_table topic = function db when db = SMap.empty -> () | db ->
       let min_binding = snd @@ SMap.min_binding db in
       let context_ids =
-        List.map fst @@ SMap.bindings min_binding in
+        List.map (fun (ctxid,_) -> ctxid ^ "," ) @@ SMap.bindings min_binding in
       output_string oc @@ topic ^ sep;
       output_string oc @@ String.concat sep context_ids ^ "\n";
       SMap.iter (fun bench ctx_map ->
           output_string oc @@ bench ^ sep;
           SMap.bindings ctx_map
           |> List.map (fun (_, sopt) -> match sopt with
-              | None -> ""
-              | Some aggr -> string_of_float Summary.(aggr.Aggr.mean))
+              | None -> ","
+              | Some aggr ->
+                  string_of_float Summary.(aggr.Aggr.mean) ^ "," ^
+                  string_of_float Summary.(aggr.Aggr.stddev)
+            )
           |> String.concat sep
           |> output_string oc;
           output_string oc "\n"
         ) db
     in
-    let db = add_missing_ctx db in
+    let db, nb_ctxs = add_missing_ctx db in
     match topic with
     | None ->
         TMap.iter
           (fun t db -> print_table (Topic.to_string t) db; print_endline "")
-          db
+          db; nb_ctxs
     | Some t ->
-        let topic = Topic.to_string t in
-        let db = TMap.find t db in
-        print_table topic db
+        try print_table (Topic.to_string t) (TMap.find t db); nb_ctxs
+        with Not_found -> nb_ctxs
 end
 
 module Process = struct
@@ -968,6 +988,6 @@ module Runner = struct
     let execs = run_execs execs b in
 
     (* Cleanup temporary directory *)
-    Util.FS.rm_r temp_dir;
+    Util.FS.rm_r [temp_dir];
     Result.make ~context_id ~bench:b ~execs ()
 end

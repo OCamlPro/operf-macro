@@ -21,7 +21,7 @@ module Util : sig
     val ls : ?preserve_order:bool -> ?prefix:bool -> string -> string list
     val iter : (string -> unit) -> string -> unit
     val fold : ('a -> string -> 'a) -> 'a -> string -> 'a
-    val rm_r : string -> unit
+    val rm_r : string list -> unit
 
     val exists : string -> bool
     val kind_exn : string -> Unix.file_kind
@@ -255,6 +255,10 @@ module Summary : sig
 
     include Sexpable.S with type t := t
 
+    val compare : t -> t -> int
+    val max : t -> t -> t
+    val min : t -> t -> t
+
     val of_measures : Measure.t list -> t
     (** [of_measures weight m] is a t *)
 
@@ -350,11 +354,13 @@ module DB2 : sig
   val fold : (TMap.key -> SMap.key -> SMap.key -> 'a -> 'b -> 'b) ->
     'a SMap.t SMap.t TMap.t -> 'b -> 'b
 
-  val normalize : ?context_id:string -> Summary.Aggr.t t -> Summary.Aggr.t t
+  val normalize : ?against:[`Ctx of string | `Biggest] -> Summary.Aggr.t t -> Summary.Aggr.t t
+  (** [normalize ~against db] is [db] with aggrs normalized (mean =
+      1.). If [~against] is specified, means are normalized against
+      what is specified by the polymorphic variant. *)
 
-  val context_ids : 'a t -> SSet.t
-
-  val to_csv : ?sep:string -> out_channel -> ?topic:TMap.key -> Summary.Aggr.t t -> unit
+  val to_csv : ?sep:string -> out_channel -> ?topic:TMap.key -> Summary.Aggr.t t -> int
+  (** The integer returned is the number of ctxs_ids found. *)
 end
 
 

@@ -179,8 +179,40 @@ let list switch =
         ) files_names
   in print @@ Benchmark.find_installed ?switch ()
 
+let output_gnuplot_file oc backend datafile topic nb_cols =
+  let plot_line n =
+    Printf.sprintf "plot for [i=2:%d:2] '%s' u i:i+1:xtic(1) ti col(i) ls i\n" (2*n) datafile
+  in
+  let fmt :  (string -> string -> string -> unit, out_channel, unit) format =
+    {|set style line 2 lc rgb '#E41A1C' # red
+      set style line 4 lc rgb '#377EB8' # blue
+      set style line 6 lc rgb '#4DAF4A' # green
+      set style line 8 lc rgb '#984EA3' # purple
+      set style line 10 lc rgb '#FF7F00' # orange
+      set style line 12 lc rgb '#FFFF33' # yellow
+      set style line 14 lc rgb '#A65628' # brown
+      set style line 16 lc rgb '#F781BF' # pink
+      set style histogram errorbars gap 1 title offset character 0, 0, 0
+      set style fill solid 1.00 border lt -1
+      set style data histograms
+      set terminal %s enhanced font "terminus,14" persist size 1000, 700
+      set datafile separator ','
+      set boxwidth 0.9 absolute
+      set key inside right top vertical Right noreverse noenhanced autotitles nobox
+      set datafile missing ''
+      set ylabel "normalized %s (less is better)"
+      set xtics border in scale 0,0 mirror rotate by -45  offset character 0, 0, 0 autojustify
+      set xtics norangelimit font ",10"
+      set xtics ()
+      set title "Benchmarks"
+      set yrange [ 0. : 1.25 ] noreverse nowriteback
+      %s|}
+  in
+  let topic = Re_pcre.substitute ~rex:(Re_pcre.regexp "_") ~subst:(fun _ -> "\\\\_") topic in
+  Printf.fprintf oc fmt backend topic (plot_line nb_cols)
+
 (* [selectors] are bench _names_ *)
-let summarize copts evts normalize csv selectors force ctx_ids =
+let summarize copts evts normalize pp selectors force ctx_ids =
   let evts =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
@@ -245,21 +277,36 @@ let summarize copts evts normalize csv selectors force ctx_ids =
   let data =
     (match normalize with
      | None -> data
-     | Some "" -> DB2.normalize data
-     | Some context_id -> DB2.normalize ~context_id data)
+     | Some "" -> DB2.normalize ~against:`Biggest data
+     | Some context_id -> DB2.normalize ~against:(`Ctx context_id) data)
   in
-  if not csv then
-    match copts.output with
-    | `None -> Sexplib.Sexp.output_hum stdout @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
-    | `Channel oc -> Sexplib.Sexp.output_hum oc @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
-    | `File fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
-  else
-    match copts.output with
-    | `None -> DB2.to_csv stdout data
-    | `Channel oc -> DB2.to_csv oc data
-    | `File fn -> Util.File.with_oc_safe (fun oc -> DB2.to_csv oc data) fn
+  match pp with
+  | `Sexp ->
+      (match copts.output with
+      | `None -> Sexplib.Sexp.output_hum stdout @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
+      | `Channel oc -> Sexplib.Sexp.output_hum oc @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
+      | `File fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data)
+  | `Csv ->
+      (match copts.output with
+       | `None -> ignore @@ DB2.to_csv stdout data
+       | `Channel oc -> ignore @@ DB2.to_csv oc data
+       | `File fn -> Util.File.with_oc_safe (fun oc -> ignore @@ DB2.to_csv oc data) fn)
+  | `Qt ->
+      let topic = fst @@ TMap.min_binding data |> Topic.to_string in
+      let tmp_data, oc_data = Filename.open_temp_file "macrorun" ".data" in
+      let nb_ctxs =
+        (try let nb_ctxs = DB2.to_csv oc_data data in close_out oc_data; nb_ctxs
+         with exn -> (close_out oc_data; raise exn)) in
+      let tmp_f, oc = Filename.open_temp_file "macrorun" ".gnu" in
+      let () =
+        try output_gnuplot_file oc "qt" tmp_data topic nb_ctxs; close_out oc
+          with exn -> (close_out oc; raise exn) in
+        let (_:int) = Sys.command @@ Printf.sprintf "gnuplot %s" tmp_f in
+        Util.FS.rm_r [tmp_f; tmp_data]
 
-let rank copts evts normalize csv context_ids =
+  | _ -> failwith "Not implemented"
+
+let rank copts evts normalize pp context_ids =
   Summary.summarize_dir Util.FS.cache_dir;
   let evts = List.map Topic.of_string evts in
 
@@ -488,9 +535,12 @@ let normalize =
   Arg.(value & opt ~vopt:(Some "") (some string) None &
        info ["n"; "normalize"] ~docv:"context_id" ~doc)
 
-let csv =
-  let doc = "Output in CSV format." in
-  Arg.(value & flag & info ["csv"] ~doc)
+let backend =
+  let doc = "Select backend (one of 'sexp','csv','qt')." in
+  let enum_f =
+    ["sexp", `Sexp; "csv", `Csv; "qt", `Qt]
+  in
+  Arg.(value & opt (enum enum_f) `Sexp & info ["b"; "backend"] ~doc)
 
 let summarize_cmd =
   let force =
@@ -508,7 +558,8 @@ let summarize_cmd =
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ generalized_evts $ normalize $ csv $ selector $ force $ context_ids),
+  Term.(pure summarize $ copts_t $ generalized_evts
+        $ normalize $ backend $ selector $ force $ context_ids),
   Term.info "summarize" ~doc ~man
 
 let rank_cmd =
@@ -517,7 +568,7 @@ let rank_cmd =
     `S "DESCRIPTION";
     `P "Produce an aggregated performance index for the desired compilers."] @ help_secs
   in
-  Term.(pure rank $ copts_t $ generalized_evts $ normalize $ csv $ context_ids,
+  Term.(pure rank $ copts_t $ generalized_evts $ normalize $ backend $ context_ids,
         info "rank" ~doc ~man)
 
 let cmds = [help_cmd; run_cmd; summarize_cmd; rank_cmd;
