@@ -1,5 +1,17 @@
 open Macroperf
 
+module List = struct
+  include List
+  let filter_map f l =
+    List.fold_left (fun a e -> match f e with Some v -> v::a | None -> a) [] l |> List.rev
+end
+
+module String = struct
+  include String
+  let prefix s s' =
+    length s <= length s' && s = sub s' 0 @@ length s
+end
+
 type copts = {
   output: [`Channel of out_channel | `File of string | `None];
   ignore_out: [`Stdout | `Stderr] list;
@@ -132,7 +144,11 @@ let run copts switch context_id selectors skip_benchs force =
         (* If it is the name of a benchmark, run the benchmark with
            the corresponding name*)
         (try
-           run_inner @@ List.assoc selector @@ Benchmark.find_installed ?switch ()
+           let benchs = List.filter_map
+               (fun (name, fn) ->
+                  if String.prefix selector name then Some fn else None)
+             @@ Benchmark.find_installed ?switch ()
+           in List.iter run_bench benchs
          with Not_found ->
            (match kind_of_file Filename.(concat share selector) with
             | `Noent | `File | `Other_kind ->
