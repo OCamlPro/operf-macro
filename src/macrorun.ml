@@ -113,12 +113,14 @@ let run copts switch context_id selectors skip_benchs force =
      a directory, run all benchmarks in the directory *)
   let rec run_inner selector =
     let run_bench filename =
-      let b = Benchmark.load_conv_exn filename in
-      if SSet.mem b.Benchmark.name skip_benchs
+      let open Benchmark in
+      let b = load_conv_exn filename in
+      if SSet.mem b.name skip_benchs
       || (already_run ?switch b && not force)
+      || Util.FS.is_file (List.hd b.cmd) <> Some true
       then
         (if interactive then
-          Printf.printf "Skipping %s\n" b.Benchmark.name)
+          Printf.printf "Skipping %s\n" b.name)
       else
         let res = Runner.run_exn ?context_id ~interactive b in
         write_res_copts copts res
