@@ -7,4 +7,5 @@ let () =
     Pkg.lib "pkg/META";
     Pkg.lib ~exts:Exts.module_library "lib/macroperf";
     Pkg.bin ~auto:true "src/macrorun";
+    Pkg.bin ~auto:true "src/injector";
   ]
