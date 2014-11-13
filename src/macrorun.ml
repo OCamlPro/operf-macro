@@ -23,9 +23,9 @@ let write_res_copts copts res =
   (* Write the result into stdout, or <file> if specified *)
   (match copts.output with
    | `None -> ()
-   | `Channel oc -> Sexplib.Sexp.output_hum oc @@ Result.sexp_of_t res
+   | `Channel oc -> Result.output_hum oc res
    | `File fn ->
-       try Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res
+       try Result.save_hum fn res
        with Sys_error _ -> ()
          (* Sexplib cannot create temporary file, aborting*)
   );
@@ -38,7 +38,7 @@ let write_res_copts copts res =
     let res_file =
       Util.FS.(cache_dir / name / res.Result.context_id ^ ".result") in
     XDGBaseDir.mkdir_openfile
-      (fun fn -> Sexplib.Sexp.save_hum fn @@ Result.sexp_of_t res) res_file
+      (fun fn -> Result.save_hum fn res) res_file
   with Not_found -> ()
 
 (* Generic function to create and run a benchmark *)
@@ -64,7 +64,7 @@ let make_bench_and_run copts cmd bench_out topics =
   (match bench_out with
   | None -> ()
   | Some benchfile ->
-      Sexplib.Sexp.save_hum benchfile @@ Benchmark.sexp_of_t bench);
+      Benchmark.save_hum benchfile bench);
 
   (* Run the benchmark *)
   let interactive = copts.output = `None in
@@ -301,9 +301,9 @@ let summarize copts evts normalize pp selectors force ctx_ids =
   match pp with
   | `Sexp ->
       (match copts.output with
-      | `None -> Sexplib.Sexp.output_hum stdout @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
-      | `Channel oc -> Sexplib.Sexp.output_hum oc @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data
-      | `File fn -> Sexplib.Sexp.save_hum fn @@ DB2.sexp_of_t Summary.Aggr.sexp_of_t data)
+      | `None -> DB2.output_hum stdout Summary.Aggr.sexp_of_t data
+      | `Channel oc -> DB2.output_hum oc Summary.Aggr.sexp_of_t data
+      | `File fn -> DB2.save_hum fn Summary.Aggr.sexp_of_t data)
   | `Csv ->
       (match copts.output with
        | `None -> ignore @@ DB2.to_csv stdout data

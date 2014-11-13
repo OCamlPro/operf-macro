@@ -40,6 +40,7 @@ module Util : sig
     val lines_of_file : string -> string list
     val write_string_to_file: fn:string -> string -> unit
     val with_oc_safe : (out_channel -> 'a) -> string -> 'a
+    val with_ic_safe : (in_channel -> 'a) -> string -> 'a
   end
 
   module Cmd : sig
@@ -255,6 +256,8 @@ module Summary : sig
 
     include Sexpable.S with type t := t
 
+    val create : float -> float -> float -> float -> t
+
     val compare : t -> t -> int
     val max : t -> t -> t
     val min : t -> t -> t
@@ -318,6 +321,8 @@ module DB : sig
   (** Indexed by benchmark, context_id, topic. *)
 
   include Sexpable.S1 with type 'a t := 'a t
+  val save_hum : string -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
+  val output_hum : out_channel -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
 
   val empty : 'a t
 
@@ -336,8 +341,6 @@ module DB : sig
   (** [of_dir dn] is the db created from the .summary files found from
       the traversal of [dn]. *)
 
-  val save_hum : string -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
-  val output_hum : out_channel -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
 end
 
 module DB2 : sig
@@ -347,6 +350,8 @@ module DB2 : sig
   (** Indexed by topic, benchmark, context_id *)
 
   include Sexpable.S1 with type 'a t := 'a t
+  val save_hum : string -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
+  val output_hum : out_channel -> ('a -> Sexplib.Sexp.t) -> 'a t -> unit
 
   val empty : 'a t
   val add : TMap.key -> SMap.key -> SMap.key -> 'a -> 'a t -> 'a t

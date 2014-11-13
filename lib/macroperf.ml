@@ -120,6 +120,11 @@ module Util = struct
       let oc = open_out fn in
       try let res = f oc in close_out oc; res
       with exn -> close_out oc; raise exn
+
+    let with_ic_safe f fn =
+      let ic = open_in fn in
+      try let res = f ic in close_in ic; res
+      with exn -> close_in ic; raise exn
   end
 
   module Cmd = struct
@@ -524,6 +529,8 @@ module Summary = struct
       maxi: float;
     } with sexp
 
+    let create mean stddev mini maxi = { mean; stddev; mini; maxi; }
+
     let compare t1 t2 = Pervasives.compare t1.mean t2.mean
     let min t1 t2 = if t1.mean <= t2.mean then t1 else t2
     let max t1 t2 = if t1.mean >= t2.mean then t1 else t2
@@ -759,6 +766,12 @@ module DB2 = struct
     | Some t ->
         try print_table (Topic.to_string t) (TMap.find t db); nb_ctxs
         with Not_found -> nb_ctxs
+
+  let save_hum fn f s =
+    sexp_of_t f s |> Sexplib.Sexp.save_hum fn
+
+  let output_hum oc f s =
+    sexp_of_t f s |> Sexplib.Sexp.output_hum oc
 end
 
 module Process = struct
