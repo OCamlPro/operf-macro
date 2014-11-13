@@ -44,6 +44,12 @@ module Util = struct
       | S_DIR -> f (List.fold_left (fold f) acc @@ ls ~prefix:true n) n
       | _ -> f acc n
 
+    let rec fold_files f acc n =
+      let open Unix in
+      match (stat n).st_kind with
+      | S_DIR -> List.fold_left (fold_files f) acc @@ ls ~prefix:true n
+      | _ -> f acc n
+
     let rm_r fns =
       List.iter
         (iter

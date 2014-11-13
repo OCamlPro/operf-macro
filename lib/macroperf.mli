@@ -21,6 +21,7 @@ module Util : sig
     val ls : ?preserve_order:bool -> ?prefix:bool -> string -> string list
     val iter : (string -> unit) -> string -> unit
     val fold : ('a -> string -> 'a) -> 'a -> string -> 'a
+    val fold_files : ('a -> string -> 'a) -> 'a -> string -> 'a
     val rm_r : string list -> unit
 
     val exists : string -> bool
