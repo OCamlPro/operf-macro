@@ -230,7 +230,7 @@ let output_gnuplot_file oc backend datafile topic nb_cols =
   Printf.fprintf oc fmt backend topic (plot_line nb_cols)
 
 (* [selectors] are bench _names_ *)
-let summarize copts evts normalize pp selectors force ctx_ids =
+let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
   let evts =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
@@ -295,10 +295,9 @@ let summarize copts evts normalize pp selectors force ctx_ids =
       data DB2.empty in
 
   let data =
-    (match normalize with
-     | None -> data
-     | Some "" -> DB2.normalize ~against:`Biggest data
-     | Some context_id -> DB2.normalize ~against:(`Ctx context_id) data)
+    (match ref_ctx_id with
+     | "" -> DB2.normalize ~against:`Biggest data
+     | context_id -> DB2.normalize ~against:(`Ctx context_id) data)
   in
   match pp with
   | `Sexp ->
@@ -315,7 +314,8 @@ let summarize copts evts normalize pp selectors force ctx_ids =
       let topic = fst @@ TMap.min_binding data |> Topic.to_string in
       let tmp_data, oc_data = Filename.open_temp_file "macrorun" ".data" in
       let nb_ctxs =
-        (try let nb_ctxs = DB2.to_csv oc_data data in close_out oc_data; nb_ctxs
+        (try let nb_ctxs = DB2.to_csv ~escape_uscore:true
+            oc_data data in close_out oc_data; nb_ctxs
          with exn -> (close_out oc_data; raise exn)) in
       let tmp_f, oc = Filename.open_temp_file "macrorun" ".gnu" in
       let () =
@@ -552,8 +552,7 @@ let context_ids =
 
 let normalize =
   let doc = "Normalize against the value of a context_id (compiler)." in
-  Arg.(value & opt ~vopt:(Some "") (some string) None &
-       info ["n"; "normalize"] ~docv:"context_id" ~doc)
+  Arg.(value & opt string "" & info ["n"; "normalize"] ~docv:"context_id" ~doc)
 
 let backend =
   let doc = "Select backend (one of 'sexp','csv','qt')." in

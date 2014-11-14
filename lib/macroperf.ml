@@ -755,7 +755,7 @@ module DB2 = struct
           ctx_ids ctxmap)
       db, nb_ctxs
 
-  let to_csv ?(sep=",") oc ?topic db =
+  let to_csv ?(escape_uscore=false) ?(sep=",") oc ?topic db =
     let print_table topic = function db when db = SMap.empty -> () | db ->
       let min_binding = snd @@ SMap.min_binding db in
       let context_ids =
@@ -763,6 +763,9 @@ module DB2 = struct
       output_string oc @@ topic ^ sep;
       output_string oc @@ String.concat sep context_ids ^ "\n";
       SMap.iter (fun bench ctx_map ->
+          let bench = if escape_uscore
+            then Re_pcre.(substitute ~rex:(regexp "_") ~subst:(fun _ -> "\\\\_") bench)
+            else bench in
           output_string oc @@ bench ^ sep;
           SMap.bindings ctx_map
           |> List.map (fun (_, sopt) -> match sopt with

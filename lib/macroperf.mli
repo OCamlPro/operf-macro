@@ -366,7 +366,8 @@ module DB2 : sig
       1.). If [~against] is specified, means are normalized against
       what is specified by the polymorphic variant. *)
 
-  val to_csv : ?sep:string -> out_channel -> ?topic:TMap.key -> Summary.Aggr.t t -> int
+  val to_csv : ?escape_uscore:bool ->
+    ?sep:string -> out_channel -> ?topic:TMap.key -> Summary.Aggr.t t -> int
   (** The integer returned is the number of ctxs_ids found. *)
 end
 
