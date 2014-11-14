@@ -36,7 +36,7 @@ let write_res_copts copts res =
   let name = Re_pcre.substitute ~rex ~subst:(fun _ -> "_") name in
   try
     let res_file =
-      Util.FS.(cache_dir / name / res.Result.context_id ^ ".result") in
+      Util.FS.(macro_dir / name / res.Result.context_id ^ ".result") in
     XDGBaseDir.mkdir_openfile
       (fun fn -> Result.save_hum fn res) res_file
   with Not_found -> ()
@@ -109,7 +109,7 @@ let run copts switch context_id selectors skip_benchs force =
       | Some sw -> sw in
     match
       Result.load_conv @@
-      Util.FS.(cache_dir / b.Benchmark.name / switch ^ ".result")
+      Util.FS.(macro_dir / b.Benchmark.name / switch ^ ".result")
     with
     | `Result _ -> true
     | _ -> false
@@ -242,7 +242,7 @@ let summarize copts evts normalize pp selectors force ctx_ids =
   (* [selectors] are directories hopefully containing .summary
      files. *)
   let selectors = match selectors with
-    | [] -> [Util.FS.cache_dir]
+    | [] -> Util.FS.[macro_dir; micro_dir]
     | ss -> List.fold_left
               (fun a s -> try
                   if Sys.is_directory s
@@ -251,8 +251,8 @@ let summarize copts evts normalize pp selectors force ctx_ids =
                 with Sys_error _ ->
                   (* Not a file nor a dir: benchmark name *)
                   (try
-                     if Sys.is_directory Util.FS.(cache_dir / s) then
-                       Util.FS.(cache_dir / s)::a
+                     if Sys.is_directory Util.FS.(macro_dir / s) then
+                       Util.FS.(macro_dir / s)::a
                      else a
                    with Sys_error _ -> a)
               )
@@ -325,11 +325,11 @@ let summarize copts evts normalize pp selectors force ctx_ids =
   | _ -> failwith "Not implemented"
 
 let rank copts evts normalize pp context_ids =
-  Summary.summarize_dir Util.FS.cache_dir;
+  Summary.summarize_dir Util.FS.macro_dir;
   let evts = List.map Topic.of_string evts in
 
   (* Create database *)
-  let data = DB.of_dir Util.FS.cache_dir in
+  let data = DB.of_dir Util.FS.macro_dir in
 
   (* Filter on requested evts *)
   let data = DB.map

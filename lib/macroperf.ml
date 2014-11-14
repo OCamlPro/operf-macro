@@ -19,7 +19,9 @@ module Util = struct
   module FS = struct
     let (/) = Filename.concat
     let home = Unix.getenv "HOME"
-    let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () / "operf" / "macro"
+    let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () / "operf"
+    let micro_dir = cache_dir / "micro"
+    let macro_dir = cache_dir / "macro"
 
     let ls ?(preserve_order=false) ?(prefix=false) dirname =
       let dh = Unix.opendir dirname in
@@ -619,9 +621,10 @@ module Summary = struct
 
   let summarize_dir ?(update_only=true) dn =
     let open Unix in
-    Util.FS.fold
-      (fun _ fn -> match (stat fn).st_kind with
-         | S_REG when Filename.check_suffix fn ".result" ->
+    let summarize_dir_unsafe () =
+      Util.FS.fold_files
+        (fun _ fn ->
+           if Filename.check_suffix fn ".result" then
              let summary_fn =
                Filename.chop_suffix fn ".result" ^ ".summary" in
              if not
@@ -631,9 +634,10 @@ module Summary = struct
              then
                let s = load_from_result fn in
                save_hum summary_fn s
-         | _ -> ()
-      )
-      () dn
+        )
+        () dn
+    in
+    if Sys.file_exists dn then summarize_dir_unsafe ()
 end
 
 module DB = struct
@@ -668,12 +672,15 @@ module DB = struct
 
   let of_dir ?(acc=SMap.empty) dn =
     let open Summary in
-    fold_dir
-      (fun db fn ->
-         let s = load_conv_exn fn in
-         add s.name s.context_id s db
-      )
-      acc dn
+    let of_dir_unsafe () =
+      fold_dir
+        (fun db fn ->
+           let s = load_conv_exn fn in
+           add s.name s.context_id s db
+        )
+        acc dn
+    in
+    if Sys.file_exists dn then of_dir_unsafe () else acc
 
   let save_hum fn f s =
     sexp_of_t f s |> Sexplib.Sexp.save_hum fn

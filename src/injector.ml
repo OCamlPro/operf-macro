@@ -32,6 +32,13 @@ module Core_bench_data = struct
 
   let affine_adjustment ?(what=cycles) ts =
     let ts = List.map (fun t -> t.runs, what t |> Int64.to_float) ts in
+
+    (* Computing min and max amortized measure *)
+    let amortized = List.map (fun (nb_iter, v) -> v /. float nb_iter) ts in
+    let min_a = List.fold_left (fun a v -> min a v) max_float amortized in
+    let max_a = List.fold_left
+        (fun a v -> if v <> infinity then max a v else a) min_float amortized in
+
     let affine_adjustment r =
       let len = float (List.length r) in
       let mean_x =
@@ -61,7 +68,7 @@ module Core_bench_data = struct
       in
       let a = covariance_x_y /. variance_x in
       let b = mean_y -. a *. mean_x in
-      a, b
+      a, b, min_a, max_a
     in affine_adjustment ts
 end
 
@@ -93,10 +100,10 @@ let export
   in
   let summaries = List.map
       (fun (name, data) ->
-         let cy_a, cy_b = Core_bench_data.(affine_adjustment ~what:cycles data) in
-         let na_a, na_b = Core_bench_data.(affine_adjustment ~what:nanos data) in
-         let cy_aggr = Summary.Aggr.create cy_a 0. 0. 0. in
-         let na_aggr = Summary.Aggr.create na_a 0. 0. 0. in
+         let cy_a, cy_b, cy_min, cy_max = Core_bench_data.(affine_adjustment ~what:cycles data) in
+         let na_a, na_b, na_min, na_max = Core_bench_data.(affine_adjustment ~what:nanos data) in
+         let cy_aggr = Summary.Aggr.create cy_a 0. cy_min cy_max in
+         let na_aggr = Summary.Aggr.create na_a 0. na_min na_max in
          Summary.{
            name; context_id; weight;
            data = TMap.add

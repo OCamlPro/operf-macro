@@ -17,7 +17,8 @@ module Util : sig
   module FS : sig
     val (/) : string -> string -> string
     val home : string
-    val cache_dir : string
+    val micro_dir : string
+    val macro_dir : string
     val ls : ?preserve_order:bool -> ?prefix:bool -> string -> string list
     val iter : (string -> unit) -> string -> unit
     val fold : ('a -> string -> 'a) -> 'a -> string -> 'a
