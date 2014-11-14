@@ -23,12 +23,18 @@ module Util = struct
     let micro_dir = cache_dir / "micro"
     let macro_dir = cache_dir / "macro"
 
-    let ls ?(preserve_order=false) ?(prefix=false) dirname =
+    let ls ?(preserve_order=false) ?(prefix=false) ?glob dirname =
       let dh = Unix.opendir dirname in
       let rec loop acc =
         match Unix.readdir dh with
         | n when n <> "." && n <> ".." ->
-            let n = if prefix then dirname / n else n in loop (n::acc)
+            let n' = if prefix then dirname / n else n
+            in
+            (match glob with
+             | None -> loop (n'::acc)
+             | Some pat ->
+                 let re = Re_glob.globx ~anchored:() pat |> Re.compile in
+                 if Re.execp re n then loop (n'::acc) else loop acc)
         | _ -> loop acc
         | exception End_of_file ->
             if preserve_order then List.rev acc else acc

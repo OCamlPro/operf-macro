@@ -242,30 +242,32 @@ let summarize copts evts normalize pp selectors force ctx_ids =
   (* [selectors] are directories hopefully containing .summary
      files. *)
   let selectors = match selectors with
-    | [] -> Util.FS.[macro_dir; micro_dir]
+    | [] -> SSet.of_list @@ Util.FS.[macro_dir; micro_dir]
     | ss -> List.fold_left
               (fun a s -> try
                   if Sys.is_directory s
-                  then s::a (* selector is a directory, looking for content *)
+                  then SSet.add s a (* selector is a directory, looking for content *)
                   else a (* selector is a file, do nothing *)
                 with Sys_error _ ->
-                  (* Not a file nor a dir: benchmark name *)
+                  (* Not a file nor a dir: benchmark glob expression *)
                   (try
-                     if Sys.is_directory Util.FS.(macro_dir / s) then
-                       Util.FS.(macro_dir / s)::a
-                     else a
+                     let benchs = Util.FS.(ls ~prefix:true
+                                             ~glob:s macro_dir @
+                                           ls ~prefix:true
+                                             ~glob:s micro_dir) in
+                     SSet.union a @@ SSet.of_list benchs
                    with Sys_error _ -> a)
               )
-              [] ss
+              SSet.empty ss
   in
 
   (* Make sure all .result files have an up-to-date corresponding
      .summary *)
-  List.iter Summary.summarize_dir selectors;
+  SSet.iter Summary.summarize_dir selectors;
 
   (* Create the DB *)
-  let data = List.fold_left (fun db dn -> DB.of_dir ~acc:db dn)
-      DB.empty selectors in
+  let data = SSet.fold (fun dn db -> DB.of_dir ~acc:db dn)
+      selectors DB.empty in
 
   (* Filter on context ids *)
   let data = match ctx_ids with
@@ -567,9 +569,9 @@ let summarize_cmd =
   let selector =
     let doc = "If the argument correspond to a file, it is taken \
                as a .result file, otherwise the argument is treated as \
-               a benchmark name. \
+               a regular expression matching a benchmark name. \
                If missing, all results of previously ran benchmarks are used." in
-    Arg.(value & pos_all string [] & info [] ~docv:"<file|name>" ~doc)
+    Arg.(value & pos_all string [] & info [] ~docv:"<file|regexp>" ~doc)
   in
   let doc = "Produce a summary of the result of the desired benchmarks." in
   let man = [

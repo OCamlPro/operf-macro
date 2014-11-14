@@ -19,7 +19,7 @@ module Util : sig
     val home : string
     val micro_dir : string
     val macro_dir : string
-    val ls : ?preserve_order:bool -> ?prefix:bool -> string -> string list
+    val ls : ?preserve_order:bool -> ?prefix:bool -> ?glob:string -> string -> string list
     val iter : (string -> unit) -> string -> unit
     val fold : ('a -> string -> 'a) -> 'a -> string -> 'a
     val fold_files : ('a -> string -> 'a) -> 'a -> string -> 'a

@@ -3,6 +3,7 @@
 <src> : include
 
 <lib/*.{ml,mli}> : package(re.pcre), \
+		   package(re.glob), \
 		   syntax(camlp4o), \
 		   package(sexplib.syntax), \
 		   package(perf), \
@@ -13,6 +14,7 @@
 
 <src/*.{ml,mli,byte,native}>: package(cmdliner), \
 		       package(re.pcre), \
+		       package(re.glob), \
 		       package(sexplib), \
 		       package(xdg-basedir), \
 		       package(perf), \
