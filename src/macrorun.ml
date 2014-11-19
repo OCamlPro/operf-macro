@@ -93,20 +93,19 @@ let is_benchmark_file filename =
   Filename.check_suffix filename ".bench"
 
 let run copts switch context_id selectors skip_benchs force =
+  let switch = match switch with
+    | Some s -> s
+    | None -> Util.Opam.cur_switch in
   (** If switch is specified but not context_id, the context_id =
       switch *)
-  let context_id = match context_id, switch with
-    | None, Some s -> Some s
-    | _ -> context_id in
+  let context_id = match context_id with
+    | None -> switch
+    | Some c -> c in
   let skip_benchs = SSet.of_list skip_benchs in
-  let share = Util.Opam.share ?switch () in
+  let share = Util.Opam.(share switch) in
   let interactive = copts.output = `None in
 
-  let already_run ?switch b =
-    let switch =
-      match switch with
-      | None -> Util.Opam.switch
-      | Some sw -> sw in
+  let already_run switch b =
     match
       Result.load_conv @@
       Util.FS.(macro_dir / b.Benchmark.name / switch ^ ".result")
@@ -118,7 +117,7 @@ let run copts switch context_id selectors skip_benchs force =
 
   (* If no selectors, all installed benchmarks are selected. *)
   let infered_selectors = match selectors with
-    | [] -> List.map snd @@ Benchmark.find_installed ?switch ()
+    | [] -> List.map snd @@ Benchmark.find_installed switch
     | selectors -> selectors
   in
   (* If selector is a file, run the benchmark in the file, if it is
@@ -128,13 +127,13 @@ let run copts switch context_id selectors skip_benchs force =
       let open Benchmark in
       let b = load_conv_exn filename in
       if SSet.mem b.name skip_benchs
-      || (already_run ?switch b && not force)
+      || (already_run switch b && not force)
       || Util.FS.is_file (List.hd b.cmd) <> Some true
       then
         (if interactive then
           Printf.printf "Skipping %s\n" b.name)
       else
-        let res = Runner.run_exn ?context_id ~interactive b in
+        let res = Runner.run_exn ~context_id ~interactive b in
         write_res_copts copts res
     in
     match kind_of_file selector with
@@ -147,7 +146,7 @@ let run copts switch context_id selectors skip_benchs force =
            let benchs = List.filter_map
                (fun (name, fn) ->
                   if String.prefix selector name then Some fn else None)
-             @@ Benchmark.find_installed ?switch ()
+             @@ Benchmark.find_installed switch
            in List.iter run_bench benchs
          with Not_found ->
            (match kind_of_file Filename.(concat share selector) with
@@ -195,7 +194,15 @@ let list switch =
       List.iter (fun (n,fn) ->
           Printf.printf "%-*s %s\n" max_name_len n fn
         ) files_names
-  in print @@ Benchmark.find_installed ?switch ()
+  in match switch with
+  | Some s -> print @@ Benchmark.find_installed s
+  | None ->
+      let switches = Util.Opam.switches in
+      List.iter (fun s ->
+          Printf.printf "# %s\n" s;
+          print @@ Benchmark.find_installed s;
+          print_endline ""
+        ) switches
 
 let output_gnuplot_file oc backend datafile topic nb_cols =
   let plot_line n =

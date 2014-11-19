@@ -59,12 +59,15 @@ module Util : sig
     val root : string
     (** [root] is either $OPAMROOT or $HOME/.opam if unset *)
 
-    val switch : string
-    (** [switch] is the name of the current OPAM switch. *)
+    val cur_switch : string
+    (** [cur_switch] is the name of the current OPAM switch. *)
 
-    val share : ?switch:string -> unit -> string
-    (** [share] is the name of the share folder under the current
-        OPAM switch. *)
+    val switches : string list
+    (** [switches] is the list of installed OPAM switches. *)
+
+    val share : string -> string
+    (** [share switch] is the name of the share folder under [switch]
+        (OPAM switch). *)
   end
 end
 
@@ -173,7 +176,9 @@ module Benchmark : sig
   val output_hum : out_channel -> t -> unit
 
   (** Filesystem *)
-  val find_installed : ?switch:string -> unit -> (string * string) list
+  val find_installed : string -> (string * string) list
+  (** [find_installed switch] is the list of benchmarks, path
+      installed in switch [switch]. *)
 end
 
 module Measure : sig

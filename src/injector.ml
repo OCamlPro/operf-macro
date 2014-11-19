@@ -90,7 +90,7 @@ let import dn =
     ) [] dn
 
 let export
-    ?(context_id = Macroperf.Util.Opam.switch)
+    ?(context_id = Macroperf.Util.Opam.cur_switch)
     ?(weight = 1.) vs =
   let open Macroperf in
   let mkdir_openfile f fn =

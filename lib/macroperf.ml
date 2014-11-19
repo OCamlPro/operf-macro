@@ -166,7 +166,7 @@ module Util = struct
     include FS
     let root = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam"
 
-    let switch =
+    let cur_switch =
       let rex = Re_pcre.regexp "switch: \"([^\"]*)\"" in
       let config_lines = File.lines_of_file @@ root / "config" in
       List.fold_left
@@ -178,11 +178,11 @@ module Util = struct
         )
         "" config_lines
 
-    let swtch = switch
+    let switches =
+      let aliases = File.lines_of_file @@ root / "aliases" in
+      List.map (fun s -> String.sub s 0 (String.index s ' ')) aliases
 
-    let share ?switch () = match switch with
-      | None -> root / swtch / "share"
-      | Some s -> root / s / "share"
+    let share s = root / s / "share"
   end
 end
 
@@ -479,8 +479,8 @@ module Benchmark = struct
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
 
-  let find_installed ?switch () =
-    let share = Util.Opam.share ?switch () in
+  let find_installed switch =
+    let share = Util.Opam.share switch in
     Util.FS.ls share
     |> List.map (fun n -> Filename.concat share n)
     |> List.filter (fun n -> Unix.((stat n).st_kind = S_DIR))
@@ -978,7 +978,7 @@ module Runner = struct
     perf: SSet.t;
   }
 
-  let run_exn ?(use_perf=false) ?(context_id=Util.Opam.switch) ~interactive b =
+  let run_exn ?(use_perf=false) ?(context_id=Util.Opam.cur_switch) ~interactive b =
     let open Benchmark in
 
     (* We run benchmarks in a temporary directory that we create now. *)
