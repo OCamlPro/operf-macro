@@ -6,6 +6,10 @@ module List = struct
     List.fold_left (fun a e -> match f e with Some v -> v::a | None -> a) [] l |> List.rev
 end
 
+module StringList = struct
+  let settrip l = SSet.(of_list l |> elements)
+end
+
 module String = struct
   include String
   let prefix s s' =
@@ -93,17 +97,11 @@ let is_benchmark_file filename =
   Filename.check_suffix filename ".bench"
 
 let run copts switch context_id selectors skip_benchs force =
-  let switch = match switch with
-    | Some s -> s
-    | None -> Util.Opam.cur_switch in
-  (** If switch is specified but not context_id, the context_id =
-      switch *)
-  let context_id = match context_id with
-    | None -> switch
-    | Some c -> c in
-  let skip_benchs = SSet.of_list skip_benchs in
+  let switch = List.hd @@ Util.Opam.switches_matching switch in
   let share = Util.Opam.(share switch) in
+  let skip_benchs = SSet.of_list skip_benchs in
   let interactive = copts.output = `None in
+
 
   let already_run switch b =
     match
@@ -168,6 +166,8 @@ let run copts switch context_id selectors skip_benchs force =
     | `File ->
         List.iter run_bench [selector]
   in
+  if interactive then
+    Printf.printf "Running benchmarks installed in %s...\n" switch;
   List.iter run_inner infered_selectors
 
 let help man_format cmds topic = match topic with
@@ -199,10 +199,13 @@ let list switches =
         Printf.printf "# %s\n" s;
         print @@ Benchmark.find_installed s;
         print_endline ""
-      ) switches
-  in match switches with
-  | [] -> let switches = Util.Opam.switches in print_all switches
-  | s -> print_all s
+      ) switches in
+  let switches = match switches with
+    | [] -> Util.Opam.switches
+    | s ->
+        StringList.settrip @@
+        List.(flatten @@ map Util.Opam.switches_matching s) in
+  print_all switches
 
 let output_gnuplot_file oc backend datafile topic nb_cols =
   let plot_line n =
@@ -280,9 +283,13 @@ let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
   let data = match ctx_ids with
     | [] -> data
     | ctx_ids ->
-        let ctx_ids = SSet.of_list ctx_ids in
+        let res = List.map
+            (fun p -> Re_glob.globx ~anchored:() p |> Re.compile) ctx_ids in
         SMap.map
-          (SMap.filter (fun ctx _ -> SSet.mem ctx ctx_ids))
+          (SMap.filter
+             (fun ctx _ ->
+                List.fold_left (fun a re -> Re.execp re ctx || a) false res
+             ))
           data in
 
   (* Filter on requested evts *)
@@ -504,7 +511,7 @@ let perf_cmd =
 
 let switch =
   let doc = "Look for benchmarks installed in another switch, instead of the current one." in
-  Arg.(value & opt (some string) None & info ["s"; "switch"] ~docv:"string" ~doc)
+  Arg.(value & opt string Util.Opam.cur_switch & info ["s"; "switch"] ~docv:"glob_pat" ~doc)
 
 let run_cmd =
   let force =
@@ -518,7 +525,7 @@ let run_cmd =
   let context_id =
     let doc = "Use the specified context_id when writing benchmark results, \
                instead of the switch name." in
-    Arg.(value & opt (some string) None & info ["c"; "cid"] ~docv:"string" ~doc)
+    Arg.(value & opt string Util.Opam.cur_switch & info ["c"; "cid"] ~docv:"string" ~doc)
   in
   let selector =
     let doc = "If the argument correspond to a filename, the benchmark \

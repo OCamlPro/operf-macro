@@ -65,6 +65,10 @@ module Util : sig
     val switches : string list
     (** [switches] is the list of installed OPAM switches. *)
 
+    val switches_matching : string -> string list
+    (** [switches_matching glob] is the list of installed OPAM
+        switches that match [glob]. *)
+
     val share : string -> string
     (** [share switch] is the name of the share folder under [switch]
         (OPAM switch). *)

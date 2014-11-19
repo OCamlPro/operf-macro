@@ -182,6 +182,10 @@ module Util = struct
       let aliases = File.lines_of_file @@ root / "aliases" in
       List.map (fun s -> String.sub s 0 (String.index s ' ')) aliases
 
+    let switches_matching glob =
+      let re = Re_glob.globx ~anchored:() glob |> Re.compile in
+      List.filter (fun s -> Re.execp re s) switches
+
     let share s = root / s / "share"
   end
 end

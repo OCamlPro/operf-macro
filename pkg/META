@@ -1,6 +1,6 @@
 version = "0.1"
 description = "Macrobenchmark tools"
-requires = "sexplib perf re.pcre xdg-basedir"
+requires = "sexplib perf re.pcre re.glob xdg-basedir"
 archive(byte) = "macroperf.cma"
 archive(byte, plugin) = "macroperf.cma"
 archive(native) = "macroperf.cmxa"
