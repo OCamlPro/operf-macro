@@ -183,7 +183,7 @@ let help man_format cmds topic = match topic with
           let page = (topic, 7, "", "", ""), [`S topic; `P "Say something";] in
           `Ok (Cmdliner.Manpage.print man_format Format.std_formatter page)
 
-let list switch =
+let list switches =
   let print files_names =
       let max_name_len = List.fold_left
           (fun a (n,fn) ->
@@ -193,16 +193,16 @@ let list switch =
       in
       List.iter (fun (n,fn) ->
           Printf.printf "%-*s %s\n" max_name_len n fn
-        ) files_names
-  in match switch with
-  | Some s -> print @@ Benchmark.find_installed s
-  | None ->
-      let switches = Util.Opam.switches in
-      List.iter (fun s ->
-          Printf.printf "# %s\n" s;
-          print @@ Benchmark.find_installed s;
-          print_endline ""
-        ) switches
+        ) files_names in
+  let print_all switches =
+    List.iter (fun s ->
+        Printf.printf "# %s\n" s;
+        print @@ Benchmark.find_installed s;
+        print_endline ""
+      ) switches
+  in match switches with
+  | [] -> let switches = Util.Opam.switches in print_all switches
+  | s -> print_all s
 
 let output_gnuplot_file oc backend datafile topic nb_cols =
   let plot_line n =
@@ -537,12 +537,15 @@ let run_cmd =
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 let list_cmd =
+  let switches =
+    let doc = "List installed benchmarks for this switch." in
+    Arg.(value & pos_all string [] & info [] ~docv:"<switch>" ~doc) in
   let doc = "List installed OPAM benchmarks." in
   let man = [
     `S "DESCRIPTION";
     `P "List installed OPAM benchmarks."] @ help_secs
   in
-  Term.(pure list $ switch),
+  Term.(pure list $ switches),
   Term.info "list" ~doc ~sdocs:copts_sect ~man
 
 (* Arguments common to summarize, rank. *)
