@@ -255,14 +255,14 @@ let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
                   if Sys.is_directory s
                   then SSet.add s a (* selector is a directory, looking for content *)
                   else a (* selector is a file, do nothing *)
-                with Sys_error _ ->
+                with _ ->
                   (* Not a file nor a dir: benchmark glob expression *)
                   (try
-                     let benchs = Util.FS.(ls ~prefix:true
-                                             ~glob:s macro_dir @
-                                           ls ~prefix:true
-                                             ~glob:s micro_dir) in
-                     SSet.union a @@ SSet.of_list benchs
+                     let macro_benchs =
+                       try Util.FS.(ls ~prefix:true  ~glob:s macro_dir) with _ -> [] in
+                     let micro_benchs =
+                       try Util.FS.(ls ~prefix:true  ~glob:s micro_dir) with _ -> [] in
+                     SSet.union a @@ SSet.of_list (micro_benchs @ macro_benchs)
                    with Sys_error _ -> a)
               )
               SSet.empty ss
