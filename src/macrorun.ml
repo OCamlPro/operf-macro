@@ -96,15 +96,13 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch selectors skip_benchs force =
+let run copts switch selectors skip force =
   let switch = try
       List.hd @@ Util.Opam.switches_matching switch
     with Failure "hd" ->
       Printf.eprintf "Pattern %s do not match any existing switch. Aborting.\n" switch;
       exit 1
   in
-  let share = Util.Opam.(share switch) in
-  let skip_benchs = SSet.of_list skip_benchs in
   let interactive = copts.output = `None in
 
   let already_run switch b =
@@ -117,10 +115,30 @@ let run copts switch selectors skip_benchs force =
     | exception Sys_error _ -> false
   in
 
-  (* If no selectors, all installed benchmarks are selected. *)
-  let selectors = match selectors with
-    | [] -> List.map snd @@ Benchmark.find_installed switch
-    | selectors -> selectors
+  let files, names = List.partition Sys.file_exists selectors in
+  let selectors = match files, names with
+    | [], [] -> List.map snd @@ Benchmark.find_installed switch
+    | files, [] -> files
+    | _ ->
+        let res = List.map
+            (fun n -> Re_glob.globx ~anchored:() n |> Re.compile) names in
+        if skip then
+          let all_benchs = Benchmark.find_installed switch in
+          List.fold_left
+            (fun a re ->
+               List.filter_map (fun (n, p) ->
+                   if Re.execp re n then None else Some (n, p)
+                 ) a
+            )
+            all_benchs res
+          |> List.map snd
+          |> List.append files
+        else
+          List.fold_left
+            (fun a glob -> Benchmark.find_installed ~glob switch) [] names
+          |> List.map snd
+          |> StringList.settrip
+          |> List.append files
   in
   (* If selector is a file, run the benchmark in the file, if it is
      a directory, run all benchmarks in the directory *)
@@ -128,21 +146,18 @@ let run copts switch selectors skip_benchs force =
     let run_bench filename =
       let open Benchmark in
       let b = load_conv_exn filename in
-      let blacklisted = SSet.mem b.name skip_benchs in
       let already_run = (already_run switch b && not force) in
-      let inexistent =
+      let binary_missing =
         try Util.FS.is_file (List.hd b.cmd) <> Some true
         with _ -> true in
-      if blacklisted || already_run || inexistent
+      if already_run || binary_missing
       then
         (if interactive then
            let reason = List.fold_left2
                (fun a b s -> if b then s::a else a) []
-               [blacklisted; already_run; inexistent]
-               ["blacklisted";
-                "already run";
-                Printf.sprintf "The path \"%s\" does not exist."
-                  (List.hd b.cmd)]
+               [already_run; binary_missing]
+               ["already run";
+                Printf.sprintf "No binary at path \"%s\"" (List.hd b.cmd)]
            in let reason_str = String.concat ", " reason in
            Printf.printf "Skipping %s (%s)\n" b.name reason_str)
       else
@@ -150,20 +165,6 @@ let run copts switch selectors skip_benchs force =
         write_res_copts copts res
     in
     match kind_of_file selector with
-    | `Noent ->
-        (* Not found, but can be a benchmark or OPAM package
-           name... *)
-        (* If it is the name of a benchmark, run the benchmark with
-           the corresponding name *)
-        (try
-           let benchs = Benchmark.find_installed ~glob:selector switch
-           in List.iter (fun (_, b) -> run_bench b) benchs
-         with Not_found ->
-           (match kind_of_file Filename.(concat share selector) with
-            | `Noent | `File | `Other_kind ->
-                Printf.eprintf "Warning: %s is neither an OPAM package nor a benchmark name.\n"
-                  selector
-            | `Directory -> run_inner Filename.(concat share selector)))
     | `Other_kind ->
         Printf.eprintf "Warning: %s is not a file nor a directory.\n" selector
     | `Directory ->
@@ -177,6 +178,7 @@ let run copts switch selectors skip_benchs force =
                 |> iter run_bench)
     | `File ->
         List.iter run_bench [selector]
+    | _ -> assert false
   in
   if interactive then
     Printf.printf "Running benchmarks installed in %s...\n" switch;
@@ -530,9 +532,9 @@ let run_cmd =
     let doc = "Force the execution of benchmarks even if \
                a result file is already present in the file system." in
     Arg.(value & flag & info ["f"; "force"] ~doc) in
-  let skip_benchs =
-    let doc = "List of bench not to run." in
-    Arg.(value & opt (list string) [] & info ["skip"] ~docv:"benchmark list" ~doc)
+  let skip =
+    let doc = "Inverse benchmark selection. (only when arguments are package globs)." in
+    Arg.(value & flag & info ["skip"] ~docv:"benchmark list" ~doc)
   in
   let selector =
     let doc = "If the argument is the path to an existing file, \
@@ -547,7 +549,7 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ selector $ skip_benchs $ force),
+  Term.(pure run $ copts_t $ switch $ selector $ skip $ force),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 
