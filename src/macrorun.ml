@@ -96,12 +96,16 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch context_id selectors skip_benchs force =
-  let switch = List.hd @@ Util.Opam.switches_matching switch in
+let run copts switch selectors skip_benchs force =
+  let switch = try
+      List.hd @@ Util.Opam.switches_matching switch
+    with Failure "hd" ->
+      Printf.eprintf "Pattern %s do not match any existing switch. Aborting.\n" switch;
+      exit 1
+  in
   let share = Util.Opam.(share switch) in
   let skip_benchs = SSet.of_list skip_benchs in
   let interactive = copts.output = `None in
-
 
   let already_run switch b =
     match
@@ -114,7 +118,7 @@ let run copts switch context_id selectors skip_benchs force =
   in
 
   (* If no selectors, all installed benchmarks are selected. *)
-  let infered_selectors = match selectors with
+  let selectors = match selectors with
     | [] -> List.map snd @@ Benchmark.find_installed switch
     | selectors -> selectors
   in
@@ -124,14 +128,25 @@ let run copts switch context_id selectors skip_benchs force =
     let run_bench filename =
       let open Benchmark in
       let b = load_conv_exn filename in
-      if SSet.mem b.name skip_benchs
-      || (already_run switch b && not force)
-      || Util.FS.is_file (List.hd b.cmd) <> Some true
+      let blacklisted = SSet.mem b.name skip_benchs in
+      let already_run = (already_run switch b && not force) in
+      let inexistent =
+        try Util.FS.is_file (List.hd b.cmd) <> Some true
+        with _ -> true in
+      if blacklisted || already_run || inexistent
       then
         (if interactive then
-          Printf.printf "Skipping %s\n" b.name)
+           let reason = List.fold_left2
+               (fun a b s -> if b then s::a else a) []
+               [blacklisted; already_run; inexistent]
+               ["blacklisted";
+                "already run";
+                Printf.sprintf "The path \"%s\" does not exist."
+                  (List.hd b.cmd)]
+           in let reason_str = String.concat ", " reason in
+           Printf.printf "Skipping %s (%s)\n" b.name reason_str)
       else
-        let res = Runner.run_exn ~context_id ~interactive b in
+        let res = Runner.run_exn ~context_id:switch ~interactive b in
         write_res_copts copts res
     in
     match kind_of_file selector with
@@ -139,13 +154,10 @@ let run copts switch context_id selectors skip_benchs force =
         (* Not found, but can be a benchmark or OPAM package
            name... *)
         (* If it is the name of a benchmark, run the benchmark with
-           the corresponding name*)
+           the corresponding name *)
         (try
-           let benchs = List.filter_map
-               (fun (name, fn) ->
-                  if String.prefix selector name then Some fn else None)
-             @@ Benchmark.find_installed switch
-           in List.iter run_bench benchs
+           let benchs = Benchmark.find_installed ~glob:selector switch
+           in List.iter (fun (_, b) -> run_bench b) benchs
          with Not_found ->
            (match kind_of_file Filename.(concat share selector) with
             | `Noent | `File | `Other_kind ->
@@ -168,7 +180,7 @@ let run copts switch context_id selectors skip_benchs force =
   in
   if interactive then
     Printf.printf "Running benchmarks installed in %s...\n" switch;
-  List.iter run_inner infered_selectors
+  List.iter run_inner selectors
 
 let help man_format cmds topic = match topic with
   | None -> `Help (`Pager, None) (* help about the program. *)
@@ -340,19 +352,19 @@ let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
 
   | _ -> failwith "Not implemented"
 
-let rank copts evts normalize pp context_ids =
+let rank copts topics normalize pp context_ids =
   Summary.summarize_dir Util.FS.macro_dir;
-  let evts = List.map Topic.of_string evts in
+  let topics = List.map Topic.of_string topics in
 
   (* Create database *)
   let data = DB.of_dir Util.FS.macro_dir in
 
-  (* Filter on requested evts *)
+  (* Filter on requested topics *)
   let data = DB.map
-      (fun smry -> match evts with
+      (fun smry -> match topics with
          | [] -> smry
-         | evts ->
-             Summary.{ smry with data = TMap.filter (fun t _ -> List.mem t evts) smry.data }
+         | topics ->
+             Summary.{ smry with data = TMap.filter (fun t _ -> List.mem t topics) smry.data }
       )
       data in
 
@@ -522,11 +534,6 @@ let run_cmd =
     let doc = "List of bench not to run." in
     Arg.(value & opt (list string) [] & info ["skip"] ~docv:"benchmark list" ~doc)
   in
-  let context_id =
-    let doc = "Use the specified context_id when writing benchmark results, \
-               instead of the switch name." in
-    Arg.(value & opt string Util.Opam.cur_switch & info ["c"; "cid"] ~docv:"string" ~doc)
-  in
   let selector =
     let doc = "If the argument correspond to a filename, the benchmark \
                is executed from this file, otherwise \
@@ -540,8 +547,9 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ context_id $ selector $ skip_benchs $ force),
+  Term.(pure run $ copts_t $ switch $ selector $ skip_benchs $ force),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
+
 
 let list_cmd =
   let switches =
@@ -557,15 +565,15 @@ let list_cmd =
 
 (* Arguments common to summarize, rank. *)
 
-let generalized_evts =
-  let doc = "Select the topic to summarize. \
+let topics =
+  let doc = "Select the topics to summarize. \
              This command understand gc stats, \
              perf events, times... (default: all topics)." in
-  Arg.(value & opt (list string) [] & info ["e"; "event"] ~docv:"evts" ~doc)
+  Arg.(value & opt (list string) [] & info ["t"; "topics"] ~docv:"topics" ~doc)
 
-let context_ids =
-  let doc = "context_ids to select" in
-  Arg.(value & opt (list string) [] & info ["c";"ctxs"] ~docv:"string list" ~doc)
+let switches =
+  let doc = "compiler switches to select" in
+  Arg.(value & opt (list string) [] & info ["s";"switches"] ~docv:"switch name" ~doc)
 
 let normalize =
   let doc = "Normalize against the value of a context_id (compiler)." in
@@ -594,8 +602,8 @@ let summarize_cmd =
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ generalized_evts
-        $ normalize $ backend $ selector $ force $ context_ids),
+  Term.(pure summarize $ copts_t $ topics
+        $ normalize $ backend $ selector $ force $ switches),
   Term.info "summarize" ~doc ~man
 
 let rank_cmd =
@@ -604,7 +612,7 @@ let rank_cmd =
     `S "DESCRIPTION";
     `P "Produce an aggregated performance index for the desired compilers."] @ help_secs
   in
-  Term.(pure rank $ copts_t $ generalized_evts $ normalize $ backend $ context_ids,
+  Term.(pure rank $ copts_t $ topics $ normalize $ backend $ switches,
         info "rank" ~doc ~man)
 
 let cmds = [help_cmd; run_cmd; summarize_cmd; rank_cmd;

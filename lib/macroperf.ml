@@ -15,6 +15,24 @@ module Sexpable = struct
   end
 end
 
+module SSet = Set.Make(String)
+
+module List = struct
+  include List
+  let filter_map f l =
+    List.fold_left (fun a e -> match f e with Some v -> v::a | None -> a) [] l |> List.rev
+end
+
+module StringList = struct
+  let settrip l = SSet.(of_list l |> elements)
+end
+
+module String = struct
+  include String
+  let prefix s s' =
+    length s <= length s' && s = sub s' 0 @@ length s
+end
+
 module Util = struct
   module FS = struct
     let (/) = Filename.concat
@@ -320,7 +338,6 @@ module Topic = struct
   let compare = Pervasives.compare
 end
 
-module SSet = Set.Make(String)
 
 module TSet = struct
   include Set.Make(Topic)
@@ -483,7 +500,7 @@ module Benchmark = struct
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
 
-  let find_installed switch =
+  let find_installed ?glob switch =
     let share = Util.Opam.share switch in
     Util.FS.ls share
     |> List.map (fun n -> Filename.concat share n)
@@ -501,6 +518,15 @@ module Benchmark = struct
          List.combine bench_names bench_files
       )
     |> List.flatten
+    |> fun l -> match glob with
+    | None -> l
+    | Some glob ->
+        let re = Re_glob.globx ~anchored:() glob |> Re.compile in
+        List.filter_map (fun (name, path) ->
+            if Re.execp re name
+            then Some (name, path) else None
+          )
+          l
 end
 
 module Result = struct
