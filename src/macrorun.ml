@@ -451,9 +451,9 @@ let help_secs = [
   `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
   `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
-let copts interactive output_file ignore_out =
+let copts batch output_file ignore_out =
   let output =
-    if interactive then `None
+    if not batch then `None
     else if output_file = "" then `Channel stdout
     else `File output_file in
   { output;
@@ -468,17 +468,17 @@ let copts interactive output_file ignore_out =
 
 let copts_t =
   let docs = copts_sect in
-  let interactive =
-    let doc = "Run in interactive mode, i.e. do not print result files to screen\
-               but rather print information about progression." in
-    Arg.(value & flag & info ["i";"interactive"] ~docs ~doc) in
+  let batch =
+    let doc = "Run in batch mode, i.e. print result files to screen\
+               instead of printing information about progression." in
+    Arg.(value & flag & info ["batch"] ~docs ~doc) in
   let output_file =
     let doc = "File to write the result to (default: stdout)." in
     Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc) in
   let ignore_out =
     let doc = "Discard program output (default: none)." in
     Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
-  Term.(pure copts $ interactive $ output_file $ ignore_out)
+  Term.(pure copts $ batch $ output_file $ ignore_out)
 
 let help_cmd =
   let topic =
