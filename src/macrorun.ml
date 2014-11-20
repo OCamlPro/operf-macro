@@ -535,12 +535,12 @@ let run_cmd =
     Arg.(value & opt (list string) [] & info ["skip"] ~docv:"benchmark list" ~doc)
   in
   let selector =
-    let doc = "If the argument correspond to a filename, the benchmark \
-               is executed from this file, otherwise \
-               the argument is treated as an OPAM package. \
+    let doc = "If the argument is the path to an existing file, \
+               it is taken as a benchmark file (.bench), otherwise \
+               the argument is treated as an OPAM package shell pattern. \
                If missing, all OPAM benchmarks installed in \
                the current switch (or the one specified) are executed." in
-    Arg.(value & pos_all string [] & info [] ~docv:"<file|package>" ~doc)
+    Arg.(value & pos_all string [] & info [] ~docv:"<file|package_glob>" ~doc)
   in
   let doc = "Run macrobenchmarks from files." in
   let man = [
@@ -591,11 +591,11 @@ let summarize_cmd =
     let doc = "Force rebuilding the summary files." in
     Arg.(value & flag & info ["f"; "force"] ~doc) in
   let selector =
-    let doc = "If the argument correspond to a file, it is taken \
-               as a .result file, otherwise the argument is treated as \
-               a regular expression matching a benchmark name. \
+    let doc = "If the argument is the path to an existing file, it is taken \
+               as a .result file, otherwise it is treated as \
+               a shell pattern (glob) matching a benchmark name. \
                If missing, all results of previously ran benchmarks are used." in
-    Arg.(value & pos_all string [] & info [] ~docv:"<file|regexp>" ~doc)
+    Arg.(value & pos_all string [] & info [] ~docv:"<file|benchmark_glob>" ~doc)
   in
   let doc = "Produce a summary of the result of the desired benchmarks." in
   let man = [
