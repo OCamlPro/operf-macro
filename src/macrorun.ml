@@ -47,17 +47,14 @@ let write_res_copts copts res =
 
 (* Generic function to create and run a benchmark *)
 let make_bench_and_run copts cmd topics =
-  let check_if_exists e =
-  if ((not @@ Sys.file_exists e) || Filename.is_relative e) then
-    begin
-      Printf.eprintf "Path %s does not exist or is relative. \
-                      Cannot run benchmark, aborting.\n" e;
-        exit 1
-    end
+  let absolute e =
+    if not @@ Sys.file_exists e then invalid_arg @@ Printf.sprintf "%s does not exist" e
+    else if not @@ Filename.is_relative e then e
+    else if Filename.is_implicit e then Filename.concat (Unix.getcwd ()) e
+    else invalid_arg @@ Printf.sprintf "%s should be either absolute or relative" e
   in
-  check_if_exists @@ List.hd cmd;
-
-  let name = Filename.basename @@ List.hd cmd in
+  let exe = absolute @@ List.hd cmd in
+  let name = Filename.basename exe in
   let bench =
     Benchmark.make
       ~name
