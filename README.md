@@ -2,29 +2,35 @@
 
 ## Introduction
 
-*operf-macro* is a (macro)-benchmarking suite for OCaml. It provides a
-framework to define, run, and gather results from macro-benchmarks. A
-*macro-benchmark* is an OCaml program whose aim is to measure the
-performance of the particular compiler that generated it.
+*operf-macro* is a (macro)-benchmarking (i.e. whole program) suite for
+OCaml. It provides a framework to define, run, and measure metrics
+from such programs. Those include the elapsed time, the elapsed cycles
+and OCaml GC stats. The aim of *macro-benchmarks* is to measure the
+performance of the particular compiler that generated it. I can also
+be used to compare different versions of a particular program, or
+comparing the performance of several programs whose functionality is
+equivalent.
 
 Contrary to *micro-benchmarks* that are OCaml functions of some
-parameter(s) representing the size of the problem (size of an array to
-iterate on, number of iterations of a loop, etc.), macro-benchmarks do
-not have a parameter. The other difference is that, as said above,
-they are whole OCaml programs as opposed to functions.
+parameter(s) representing the typical size of the problem (size of an
+array to iterate on, number of iterations of a loop, etc.),
+macro-benchmarks do generally not have a parameter. The other
+difference is that, as said above, they are whole OCaml programs as
+opposed to functions.
 
 Eventually, the *operf-macro* framework will serve as an unification
-layers for presenting results from micro-benchmarks as well. Some
-tools are already available, for instance the `injector` program can
-import inline micro-benchmark results from the Jane Street *Core*
-library into the operf-macro framework.
+layer for presenting results from micro-benchmarks as well. Some tools
+are already available, for instance the `injector` program can import
+inline micro-benchmark results from the Jane Street *Core* library
+into the operf-macro framework.
 
-For now, it is however to stick with the micro-benchmarking tools
-already available like
+For now, it is however safer to stick with the micro-benchmarking
+tools already available like
 [core_bench](http://github.com/janestreet/core_bench) or
-[operf-micro](http://github.com/OCamlPro/operf-micro). Interesting
-insight about the *core_bench* library can be found
-[here](https://blogs.janestreet.com/core_bench-micro-benchmarking-for-ocaml/).
+[operf-micro](http://github.com/OCamlPro/operf-micro). An interesting
+read about the *core_bench* library can be found in the [Jane Street
+OCaml
+blog.](https://blogs.janestreet.com/core_bench-micro-benchmarking-for-ocaml/).
 
 The other important thing to have in mind from the start is that
 *operf-macro* is highly integrated into OPAM:
@@ -93,7 +99,101 @@ $ macrorun run --skip [bench_names_glob]*
 to run only a selection of benchmarks. It will include (resp. exclude)
 the selected benchmarks and only those.
 
+### Obtaining results
+
+
+
 ## Advanced usage, extending, etc.
+
+### Writing benchmarks
+
+#### TL;DR;
+
+Use:
+
+```
+$ macrorun perf /path/to/exe arg1 .. argn --batch
+```
+
+This will perform a benchmark of the program specified in the
+commandline and print the result as an s-expression in stdout. This
+s-expression include an inner s-expression describing the benchmark
+source, and this is your benchmark description. Write this in a
+`.bench` file.
+
+#### `.bench` file format
+
+Benchmark descriptions must be stored in files with the extension
+`.bench`. The format used is an S-expression matching the internal `Benchmark.t` type:
+
+```
+  type speed = [`Fast | `Slow | `Slower] with sexp
+
+  type t = {
+    name: string;
+    descr: string with default("");
+    cmd: string list;
+    cmd_check: string list with default([]);
+    env: string list option with default(None);
+    speed: speed with default(`Fast);
+    timeout: int with default(600);
+    weight: float with default(1.);
+    discard: [`Stdout | `Stderr] list with default([]);
+    topics: TSet.t with default(TSet.singleton (Topic.(Topic("cycles", Perf))));
+  } with sexp
+```
+
+- `name` is the name of the benchmark, and must be unique.
+- `description` is a free text field.
+
+- `cmd` is a list containing the absolute path of the benchmark
+  executable followed by possible arguments. If arguments are paths,
+  the *must* be absolute paths.
+
+- `cmd_check` is an optional way to run a program to check if the
+  benchmark terminated correctly. The provided string list is the name
+  of such a program and its arguments. It will be runned in a shell
+  (using `Sys.command`) and in the same directory where the benchmark
+  was run, so that the test program can inspect any files produced by
+  the benchmark, if needed.
+
+- `env` is an optional list of environment parameters. If empty, the
+  environment will be the same as the one in effect when `macrorun`
+  was run. It should be of the form `["VAR1=v1";"VAR2=v2"; ...]`
+  similar to the `Unix.execve` function.
+
+- `speed` is a indication about the time of execution of a
+  benchmark. Some benchmarks run faster than others. `Fast' should be
+  used when the execution time is less than 0.1s or so in a typical
+  machine, `Slow` when the execution time is of the order of the
+  second and `Slower` otherwise.
+
+- `timeout` is the maximum running time in seconds. After the timeout
+  expires, a running benchmark is cancelled.
+
+- `weight` is the relative importance of this benchmarks compared to
+  others. The default is `1`, for an average importance. This
+  parameter is used when computing global performance indices for a
+  compiler, including several or all benchmarks.
+
+- `discard` can be specified to indicate to `macrorun` that it should
+  not save the output of the program. Usually, the output of the
+  program is stored in the `.result` files for ulterior examination.
+
+- `topics` is a list of hints for `macrorun` to know which
+  measurements should be done. This field is deprecated and should not
+  be used.
 
 ## FAQ
 
+### I want `macrorun` to measure GC stats for my program!
+
+Please add at the end of your benchmark:
+
+```
+  try
+    let fn = Sys.getenv "OCAML_GC_STATS" in
+    let oc = open_out fn in
+    Gc.print_stat oc
+  with _ -> ()
+```
