@@ -46,14 +46,17 @@ let write_res_copts copts res =
   with Not_found -> ()
 
 (* Generic function to create and run a benchmark *)
-let make_bench_and_run copts cmd bench_out topics =
-  (* Build the name of the benchmark from the command line, but
-     replace " " by "_" *)
-  let cmd = match cmd with
-    | [] -> assert false
-    | h::t when Util.FS.exists h -> cmd
-    | h::t -> (Util.Cmd.path_of_exe h)::t
+let make_bench_and_run copts cmd topics =
+  let check_if_exists e =
+  if ((not @@ Sys.file_exists e) || Filename.is_relative e) then
+    begin
+      Printf.eprintf "Path %s does not exist or is relative. \
+                      Cannot run benchmark, aborting.\n" e;
+        exit 1
+    end
   in
+  check_if_exists @@ List.hd cmd;
+
   let name = Filename.basename @@ List.hd cmd in
   let bench =
     Benchmark.make
@@ -64,12 +67,6 @@ let make_bench_and_run copts cmd bench_out topics =
       ~topics ()
   in
 
-  (* Write benchmark to file if asked for *)
-  (match bench_out with
-  | None -> ()
-  | Some benchfile ->
-      Benchmark.save_hum benchfile bench);
-
   (* Run the benchmark *)
   let interactive = copts.output = `None in
   let res = Runner.run_exn ~interactive bench in
@@ -78,9 +75,9 @@ let make_bench_and_run copts cmd bench_out topics =
      in cache as well *)
   write_res_copts copts res
 
-let perf copts cmd evts bench_out =
+let perf copts cmd evts =
   let evts = List.map (fun e -> Topic.(Topic (e, Perf))) evts in
-  make_bench_and_run copts cmd bench_out evts
+  make_bench_and_run copts cmd evts
 
 let kind_of_file filename =
   let open Unix in
@@ -471,8 +468,8 @@ let copts batch output_file ignore_out =
 let copts_t =
   let docs = copts_sect in
   let batch =
-    let doc = "Run in batch mode, i.e. print result files to screen\
-               instead of printing information about progression." in
+    let doc = "Run in batch mode, i.e. print result files to stdout \
+        instead of printing information about progression." in
     Arg.(value & flag & info ["batch"] ~docs ~doc) in
   let output_file =
     let doc = "File to write the result to (default: stdout)." in
@@ -501,26 +498,21 @@ let default_cmd =
   Term.(ret (pure (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "macrorun" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
-(* Common arguments to perf_cmd, libperf_cmd *)
-let bench_out =
-  let doc = "Export the generated bench to file." in
-  Arg.(value & opt (some string) None & info ["export"] ~docv:"file" ~doc)
-
-let cmd =
-  let doc = "Any command you can specify in a shell." in
-  Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc)
-
-let evts =
-  let doc = "Same as the -e argument of PERF-STAT(1)." in
-  Arg.(value & opt (list string) ["cycles"] & info ["e"; "event"] ~docv:"perf-events" ~doc)
-
 let perf_cmd =
+  let cmd =
+    let doc = "Absolute path of an executable and its arguments. \
+               If arguments are paths, they must also be absolute \
+               (no shell expansion is done). " in
+    Arg.(non_empty & pos_all string [] & info [] ~docv:"<command>" ~doc) in
+  let evts =
+    let doc = "Same as the -e argument of PERF-STAT(1)." in
+    Arg.(value & opt (list string) ["cycles"] & info ["e"; "event"] ~docv:"perf-events" ~doc) in
   let doc = "Macrobenchmark using PERF-STAT(1) (Linux only)." in
   let man = [
     `S "DESCRIPTION";
     `P "Wrapper to the PERF-STAT(1) command."] @ help_secs
   in
-  Term.(pure perf $ copts_t $ cmd $ evts $ bench_out),
+  Term.(pure perf $ copts_t $ cmd $ evts),
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
 let switch =

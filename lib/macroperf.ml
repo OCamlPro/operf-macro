@@ -84,7 +84,6 @@ module Util = struct
                | _ -> unlink n)
         ) fns
 
-    let exists fn = try ignore (Unix.stat fn) = () with _ -> false
     let kind_exn fn = Unix.((stat fn).st_kind)
     let is_file_exn fn = Unix.((stat fn).st_kind = S_REG)
     let is_dir_exn fn = Unix.((stat fn).st_kind = S_DIR)

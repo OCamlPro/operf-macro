@@ -25,7 +25,6 @@ module Util : sig
     val fold_files : ('a -> string -> 'a) -> 'a -> string -> 'a
     val rm_r : string list -> unit
 
-    val exists : string -> bool
     val kind_exn : string -> Unix.file_kind
     val is_file_exn : string -> bool
     val is_dir_exn : string -> bool
