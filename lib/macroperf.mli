@@ -179,7 +179,9 @@ module Benchmark : sig
   val output_hum : out_channel -> t -> unit
 
   (** Filesystem *)
-  val find_installed : ?glob:string -> string -> (string * string) list
+  val find_installed :
+    ?glob:[`None | `Matching of string list | `Exclude of string list] ->
+    string -> (string * string) list
   (** [find_installed ?glob switch] is the list of (benchmarks, path)
       installed in switch [switch], that match the glob expression
       [?glob] if it is defined. *)

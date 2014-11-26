@@ -499,7 +499,7 @@ module Benchmark = struct
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
 
-  let find_installed ?glob switch =
+  let find_installed ?(glob=`None) switch =
     let share = Util.Opam.share switch in
     Util.FS.ls share
     |> List.map (fun n -> Filename.concat share n)
@@ -518,14 +518,21 @@ module Benchmark = struct
       )
     |> List.flatten
     |> fun l -> match glob with
-    | None -> l
-    | Some glob ->
-        let re = Re_glob.globx ~anchored:() glob |> Re.compile in
+    | `None -> l
+    | `Matching globs ->
+        let res = List.map
+            (fun re -> Re.compile @@ Re_glob.globx ~anchored:() re) globs in
         List.filter_map (fun (name, path) ->
-            if Re.execp re name
+            if List.(map (fun re -> Re.execp re name) res |> mem true)
             then Some (name, path) else None
-          )
-          l
+          ) l
+    | `Exclude globs ->
+        let res = List.map
+            (fun re -> Re.compile @@ Re_glob.globx ~anchored:() re) globs in
+        List.filter_map (fun (name, path) ->
+            if List.(map (fun re -> Re.execp re name) res |> mem true)
+            then None else Some (name, path)
+          ) l
 end
 
 module Result = struct

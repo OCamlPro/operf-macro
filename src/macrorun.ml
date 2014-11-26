@@ -114,24 +114,13 @@ let run copts switch selectors skip force =
     | [], [] -> List.map snd @@ Benchmark.find_installed switch
     | files, [] -> files
     | _ ->
-        let res = List.map
-            (fun n -> Re_glob.globx ~anchored:() n |> Re.compile) names in
         if skip then
-          let all_benchs = Benchmark.find_installed switch in
-          List.fold_left
-            (fun a re ->
-               List.filter_map (fun (n, p) ->
-                   if Re.execp re n then None else Some (n, p)
-                 ) a
-            )
-            all_benchs res
+          Benchmark.find_installed ~glob:(`Exclude names) switch
           |> List.map snd
           |> List.append files
         else
-          List.fold_left
-            (fun a glob -> Benchmark.find_installed ~glob switch) [] names
+          Benchmark.find_installed ~glob:(`Matching names) switch
           |> List.map snd
-          |> StringList.settrip
           |> List.append files
   in
   (* If selector is a file, run the benchmark in the file, if it is
