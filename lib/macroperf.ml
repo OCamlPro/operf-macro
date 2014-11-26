@@ -589,20 +589,22 @@ module Summary = struct
       let mean, variance = Statistics.mean_variance measures_float in
       let maxi, mini = List.fold_left
           (fun (ma, mi) v -> Pervasives.(max v ma, min v mi))
-          (min_float, max_float) measures_float in
+          (neg_infinity, infinity) measures_float in
       { mean; stddev = sqrt variance; mini; maxi; }
 
     let normalize t =
-      let m = t.mean in
-      { mean=1.; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
+      if t.mean = 0. then t else
+        let m = t.mean in
+        { mean=1.; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
 
     (* t1 / t2 *)
     let normalize2 t1 t2 =
-      { mean = t1.mean /. t2.mean;
-        stddev = t1.stddev /. t2.mean;
-        mini = t1.mini /. t2.mean;
-        maxi = t1.maxi /. t2.mean;
-      }
+      if t2.mean = 0. then t1 else
+        { mean = t1.mean /. t2.mean;
+          stddev = t1.stddev /. t2.mean;
+          mini = t1.mini /. t2.mean;
+          maxi = t1.maxi /. t2.mean;
+        }
   end
 
   type t = {
