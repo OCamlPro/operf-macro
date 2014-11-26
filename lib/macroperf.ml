@@ -820,9 +820,10 @@ module DB2 = struct
     let db, nb_ctxs = add_missing_ctx db in
     match topic with
     | None ->
-        TMap.iter
-          (fun t db -> print_table (Topic.to_string t) db; print_endline "")
-          db; nb_ctxs
+        TMap.iter (fun t db ->
+            print_table (Topic.to_string t) db;
+            output_string oc "\n") db;
+        nb_ctxs
     | Some t ->
         try print_table (Topic.to_string t) (TMap.find t db); nb_ctxs
         with Not_found -> nb_ctxs

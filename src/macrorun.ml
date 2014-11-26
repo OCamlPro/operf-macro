@@ -17,7 +17,7 @@ module String = struct
 end
 
 type copts = {
-  output: [`Channel of out_channel | `File of string | `None];
+  output: [`Stdout | `File of string | `None];
   ignore_out: [`Stdout | `Stderr] list;
 }
 
@@ -27,7 +27,7 @@ let write_res_copts copts res =
   (* Write the result into stdout, or <file> if specified *)
   (match copts.output with
    | `None -> ()
-   | `Channel oc -> Result.output_hum oc res
+   | `Stdout -> Result.output_hum stdout res
    | `File fn ->
        try Result.save_hum fn res
        with Sys_error _ -> ()
@@ -210,34 +210,34 @@ let output_gnuplot_file oc backend datafile topic nb_cols =
   in
   let fmt :  (string -> string -> string -> unit, out_channel, unit) format =
     {|set style line 2 lc rgb '#E41A1C' # red
-      set style line 4 lc rgb '#377EB8' # blue
-      set style line 6 lc rgb '#4DAF4A' # green
-      set style line 8 lc rgb '#984EA3' # purple
-      set style line 10 lc rgb '#FF7F00' # orange
-      set style line 12 lc rgb '#FFFF33' # yellow
-      set style line 14 lc rgb '#A65628' # brown
-      set style line 16 lc rgb '#F781BF' # pink
-      set style histogram errorbars gap 1 title offset character 0, 0, 0
-      set style fill solid 1.00 border lt -1
-      set style data histograms
-      set terminal %s enhanced font "terminus,14" persist size 1000, 700
-      set datafile separator ','
-      set boxwidth 0.9 absolute
-      set key inside right top vertical Right noreverse noenhanced autotitles nobox
-      set datafile missing ''
-      set ylabel "normalized %s (less is better)"
-      set xtics border in scale 0,0 mirror rotate by -45  offset character 0, 0, 0 autojustify
-      set xtics norangelimit font ",10"
-      set xtics ()
-      set title "Benchmarks"
-      set yrange [ 0. : 1.25 ] noreverse nowriteback
-      %s|}
+set style line 4 lc rgb '#377EB8' # blue
+set style line 6 lc rgb '#4DAF4A' # green
+set style line 8 lc rgb '#984EA3' # purple
+set style line 10 lc rgb '#FF7F00' # orange
+set style line 12 lc rgb '#FFFF33' # yellow
+set style line 14 lc rgb '#A65628' # brown
+set style line 16 lc rgb '#F781BF' # pink
+set style histogram errorbars gap 1 title offset character 0, 0, 0
+set style fill solid 1.00 border lt -1
+set style data histograms
+set terminal %s enhanced font "terminus,14" persist size 1000, 700
+set datafile separator ','
+set boxwidth 0.9 absolute
+set key inside right top vertical Right noreverse noenhanced autotitles nobox
+set datafile missing ''
+set ylabel "normalized %s (less is better)"
+set xtics border in scale 0,0 mirror rotate by -45  offset character 0, 0, 0 autojustify
+set xtics norangelimit font ",10"
+set xtics ()
+set title "Benchmarks"
+set yrange [ 0. : 1.25 ] noreverse nowriteback
+%s|}
   in
   let topic = Re_pcre.substitute ~rex:(Re_pcre.regexp "_") ~subst:(fun _ -> "\\\\_") topic in
   Printf.fprintf oc fmt backend topic (plot_line nb_cols)
 
 (* [selectors] are bench _names_ *)
-let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
+let summarize output evts ref_ctx_id pp selectors force ctx_ids =
   let evts =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
@@ -312,15 +312,13 @@ let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
   in
   match pp with
   | `Sexp ->
-      (match copts.output with
-      | `None -> DB2.output_hum stdout Summary.Aggr.sexp_of_t data
-      | `Channel oc -> DB2.output_hum oc Summary.Aggr.sexp_of_t data
-      | `File fn -> DB2.save_hum fn Summary.Aggr.sexp_of_t data)
+      (match output with
+      | "" -> DB2.output_hum stdout Summary.Aggr.sexp_of_t data
+      | fn -> DB2.save_hum fn Summary.Aggr.sexp_of_t data)
   | `Csv ->
-      (match copts.output with
-       | `None -> ignore @@ DB2.to_csv stdout data
-       | `Channel oc -> ignore @@ DB2.to_csv oc data
-       | `File fn -> Util.File.with_oc_safe (fun oc -> ignore @@ DB2.to_csv oc data) fn)
+      (match output with
+       | "" -> ignore @@ DB2.to_csv stdout data
+       | fn -> Util.File.with_oc_safe (fun oc -> ignore @@ DB2.to_csv oc data) fn)
   | `Qt ->
       let topic = fst @@ TMap.min_binding data |> Topic.to_string in
       let tmp_data, oc_data = Filename.open_temp_file "macrorun" ".data" in
@@ -331,9 +329,12 @@ let summarize copts evts ref_ctx_id pp selectors force ctx_ids =
       let tmp_f, oc = Filename.open_temp_file "macrorun" ".gnu" in
       let () =
         try output_gnuplot_file oc "qt" tmp_data topic nb_ctxs; close_out oc
-          with exn -> (close_out oc; raise exn) in
-        let (_:int) = Sys.command @@ Printf.sprintf "gnuplot %s" tmp_f in
-        Util.FS.rm_r [tmp_f; tmp_data]
+        with exn -> (close_out oc; raise exn) in
+      let (_:int) = Sys.command @@ Printf.sprintf "gnuplot %s" tmp_f in
+      (if output <> "" then
+        Util.File.with_oc_safe
+          (fun oc -> output_gnuplot_file oc "qt" tmp_data topic nb_ctxs) output);
+      Util.FS.rm_r [tmp_f; tmp_data]
 
   | _ -> failwith "Not implemented"
 
@@ -421,7 +422,7 @@ let rank copts topics normalize pp context_ids =
   in
   match copts.output with
   | `None -> print_results stdout
-  | `Channel oc -> print_results oc
+  | `Stdout -> print_results stdout
   | `File fn -> Util.File.with_oc_safe print_results fn
 
 open Cmdliner
@@ -439,7 +440,7 @@ let help_secs = [
 let copts batch output_file ignore_out =
   let output =
     if not batch then `None
-    else if output_file = "" then `Channel stdout
+    else if output_file = "" then `Stdout
     else `File output_file in
   { output;
     ignore_out=List.map
@@ -451,15 +452,17 @@ let copts batch output_file ignore_out =
         ignore_out
   }
 
+let output_file =
+  let docs = copts_sect in
+  let doc = "File to write the result to (default: stdout)." in
+  Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc)
+
 let copts_t =
   let docs = copts_sect in
   let batch =
     let doc = "Run in batch mode, i.e. print result files to stdout \
         instead of printing information about progression." in
     Arg.(value & flag & info ["batch"] ~docs ~doc) in
-  let output_file =
-    let doc = "File to write the result to (default: stdout)." in
-    Arg.(value & opt string "" & info ["o"; "output"] ~docv:"file" ~docs ~doc) in
   let ignore_out =
     let doc = "Discard program output (default: none)." in
     Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
@@ -582,7 +585,7 @@ let summarize_cmd =
     `S "DESCRIPTION";
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
-  Term.(pure summarize $ copts_t $ topics
+  Term.(pure summarize $ output_file $ topics
         $ normalize $ backend $ selector $ force $ switches),
   Term.info "summarize" ~doc ~man
 
