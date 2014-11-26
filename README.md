@@ -101,7 +101,47 @@ the selected benchmarks and only those.
 
 ### Obtaining results
 
+#### Raw data
 
+`macrorun` stores its results in `~/.cache/operf/macro`. Here you will
+find one directory per benchmark, and inside, one `.result` file per
+compiler. Inside the file you will find a *s-expression* that is the
+serialized version of `macrorun`'s `Result` value. This include mostly
+the individual measurements per execution, such as real time, cycles,
+and so on.
+
+#### Summaries
+
+Use:
+
+```
+$ macrorun summarize
+```
+
+This will print a dump of the database of all `macrorun`'s results, as
+an s-expression, on your screen, but before that, it will create a
+`.summary` file for each `.result` file (see previous section) found
+in `~/.cache/operf/macro`, in the same directory.
+
+#### Result as `.csv` files to feed your favourite plotting program
+
+```
+$ macrorun summarize -b csv -t <topic> [-s compiler1,...,compilerN] [benchmark1 ... benchmarkN]
+```
+
+This will print a CSV array of requested benchmarks (or all benchmarks
+if no benchmarks are specified) for the specified switches (or all
+switches if not specified). If you don't specify a topic (`-t`)
+option, the output will contain *n* arrays, one per topic, separated
+by a newline.
+
+#### Visualizing the results
+
+If you have a recent version of *gnuplot* compiled with its *Qt*
+backend installed, you can replace `csv` by `qt` in the example above
+(you **need** to specify a topic then). This will launch *gnuplot* in
+a window and will display the CSV array as a bar chart. You can use
+the `-o` argument to export the gnuplot `.gnu` file.
 
 ## Advanced usage, extending, etc.
 
@@ -163,7 +203,7 @@ Benchmark descriptions must be stored in files with the extension
   similar to the `Unix.execve` function.
 
 - `speed` is a indication about the time of execution of a
-  benchmark. Some benchmarks run faster than others. `Fast' should be
+  benchmark. Some benchmarks run faster than others. `Fast` should be
   used when the execution time is less than 0.1s or so in a typical
   machine, `Slow` when the execution time is of the order of the
   second and `Slower` otherwise.
