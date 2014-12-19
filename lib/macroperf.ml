@@ -489,7 +489,8 @@ module Benchmark = struct
     timeout: int with default(600);
     weight: float with default(1.);
     discard: [`Stdout | `Stderr] list with default([]);
-    topics: TSet.t with default(TSet.singleton (Topic.(Topic("cycles", Perf))));
+    topics: TSet.t with default(TSet.empty);
+    (* TSet.singleton (Topic.(Topic("cycles", Perf)))); *)
   } with sexp
 
   let make ~name ?(descr="") ~cmd ?(cmd_check=[])
