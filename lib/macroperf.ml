@@ -511,7 +511,8 @@ module Benchmark = struct
 
   let find_installed ?opamroot ?(glob=`None) switch =
     let share = Util.Opam.share ?opamroot switch in
-    Util.FS.ls share
+    (try Util.FS.ls share
+     with Unix.Unix_error (Unix.ENOENT, _, _) -> [])
     |> List.map (fun n -> Filename.concat share n)
     |> List.filter (fun n -> Unix.((stat n).st_kind = S_DIR))
     |> List.map
