@@ -37,7 +37,7 @@ module Util = struct
   module FS = struct
     let (/) = Filename.concat
     let home = Unix.getenv "HOME"
-    let cache_dir = XDGBaseDir.Cache.user_dir ~exists:true () / "operf"
+    let cache_dir = XDGBaseDir.Cache.user_dir () / "operf"
     let micro_dir = cache_dir / "micro"
     let macro_dir = cache_dir / "macro"
 
