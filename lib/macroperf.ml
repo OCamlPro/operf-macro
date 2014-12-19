@@ -17,6 +17,16 @@ end
 
 module SSet = Set.Make(String)
 
+module Opt = struct
+  let run = function
+    | Some v -> v
+    | None -> invalid_arg "Opt.run"
+
+  let default d = function
+    | Some v -> v
+    | None -> d
+end
+
 module List = struct
   include List
   let filter_map f l =
@@ -183,13 +193,9 @@ module Util = struct
     include FS
     let root = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam"
 
-    let opt_root = function
-      | None -> root
-      | Some root -> root
-
     let cur_switch ~opamroot =
       let rex = Re_pcre.regexp "switch: \"([^\"]*)\"" in
-      let config_lines = File.lines_of_file @@ opt_root opamroot / "config" in
+      let config_lines = File.lines_of_file @@ Opt.default root opamroot / "config" in
       List.fold_left
         (fun a l ->
            try
@@ -200,14 +206,14 @@ module Util = struct
         "" config_lines
 
     let switches ~opamroot =
-      let aliases = File.lines_of_file @@ opt_root opamroot / "aliases" in
+      let aliases = File.lines_of_file @@ Opt.default root opamroot / "aliases" in
       List.map (fun s -> String.sub s 0 (String.index s ' ')) aliases
 
     let switches_matching ?opamroot glob =
       let re = Re_glob.globx ~anchored:() glob |> Re.compile in
       List.filter (fun s -> Re.execp re s) (switches ~opamroot)
 
-    let share ?opamroot s = opt_root opamroot / s / "share"
+    let share ?opamroot s = Opt.default root opamroot / s / "share"
   end
 end
 
