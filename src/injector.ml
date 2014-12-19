@@ -90,9 +90,13 @@ let import dn =
     ) [] dn
 
 let export
-    ?(context_id = Macroperf.Util.Opam.cur_switch)
+    ?opamroot
+    ?context_id
     ?(weight = 1.) vs =
   let open Macroperf in
+  let context_id = match context_id with
+    | Some context_id -> context_id
+    | None -> Macroperf.Util.Opam.cur_switch ~opamroot in
   let mkdir_openfile f fn =
     let (/) = Filename.concat in
     XDGBaseDir.(mkdir_openfile f @@

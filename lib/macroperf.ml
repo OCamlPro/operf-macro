@@ -183,9 +183,13 @@ module Util = struct
     include FS
     let root = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam"
 
-    let cur_switch =
+    let opt_root = function
+      | None -> root
+      | Some root -> root
+
+    let cur_switch ~opamroot =
       let rex = Re_pcre.regexp "switch: \"([^\"]*)\"" in
-      let config_lines = File.lines_of_file @@ root / "config" in
+      let config_lines = File.lines_of_file @@ opt_root opamroot / "config" in
       List.fold_left
         (fun a l ->
            try
@@ -195,15 +199,15 @@ module Util = struct
         )
         "" config_lines
 
-    let switches =
-      let aliases = File.lines_of_file @@ root / "aliases" in
+    let switches ~opamroot =
+      let aliases = File.lines_of_file @@ opt_root opamroot / "aliases" in
       List.map (fun s -> String.sub s 0 (String.index s ' ')) aliases
 
-    let switches_matching glob =
+    let switches_matching ?opamroot glob =
       let re = Re_glob.globx ~anchored:() glob |> Re.compile in
-      List.filter (fun s -> Re.execp re s) switches
+      List.filter (fun s -> Re.execp re s) (switches ~opamroot)
 
-    let share s = root / s / "share"
+    let share ?opamroot s = opt_root opamroot / s / "share"
   end
 end
 
@@ -499,8 +503,8 @@ module Benchmark = struct
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
 
-  let find_installed ?(glob=`None) switch =
-    let share = Util.Opam.share switch in
+  let find_installed ?opamroot ?(glob=`None) switch =
+    let share = Util.Opam.share ?opamroot switch in
     Util.FS.ls share
     |> List.map (fun n -> Filename.concat share n)
     |> List.filter (fun n -> Unix.((stat n).st_kind = S_DIR))
@@ -1017,8 +1021,11 @@ module Runner = struct
     perf: SSet.t;
   }
 
-  let run_exn ?(use_perf=false) ?(context_id=Util.Opam.cur_switch) ~interactive b =
+  let run_exn ?(use_perf=false) ?opamroot ?context_id ~interactive b =
     let open Benchmark in
+    let context_id = match context_id with
+      | Some context_id -> context_id
+      | None -> Util.Opam.cur_switch ~opamroot in
 
     (* We run benchmarks in a temporary directory that we create now. *)
     let temp_dir = Filename.temp_file "macrorun" "" in

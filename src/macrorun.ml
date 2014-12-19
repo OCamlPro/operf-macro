@@ -19,6 +19,7 @@ end
 type copts = {
   output: [`Stdout | `File of string | `None];
   ignore_out: [`Stdout | `Stderr] list;
+  opamroot: string option;
 }
 
 let write_res_copts copts res =
@@ -92,8 +93,12 @@ let is_benchmark_file filename =
   Filename.check_suffix filename ".bench"
 
 let run copts switch selectors skip force =
+  let opamroot = copts.opamroot in
+  let switch = match switch with
+    | None -> Util.Opam.cur_switch ~opamroot
+    | Some switch -> switch in
   let switch = try
-      List.hd @@ Util.Opam.switches_matching switch
+      List.hd @@ Util.Opam.switches_matching ?opamroot switch
     with Failure "hd" ->
       Printf.eprintf "Pattern %s do not match any existing switch. Aborting.\n" switch;
       exit 1
@@ -112,15 +117,15 @@ let run copts switch selectors skip force =
 
   let files, names = List.partition Sys.file_exists selectors in
   let selectors = match files, names with
-    | [], [] -> List.map snd @@ Benchmark.find_installed switch
+    | [], [] -> List.map snd @@ Benchmark.find_installed ?opamroot switch
     | files, [] -> files
     | _ ->
         if skip then
-          Benchmark.find_installed ~glob:(`Exclude names) switch
+          Benchmark.find_installed ?opamroot ~glob:(`Exclude names) switch
           |> List.map snd
           |> List.append files
         else
-          Benchmark.find_installed ~glob:(`Matching names) switch
+          Benchmark.find_installed ?opamroot ~glob:(`Matching names) switch
           |> List.map snd
           |> List.append files
   in
@@ -145,7 +150,7 @@ let run copts switch selectors skip force =
            in let reason_str = String.concat ", " reason in
            Printf.printf "Skipping %s (%s)\n" b.name reason_str)
       else
-        let res = Runner.run_exn ~context_id:switch ~interactive b in
+        let res = Runner.run_exn ?opamroot ~context_id:switch ~interactive b in
         write_res_copts copts res
     in
     match kind_of_file selector with
@@ -181,7 +186,7 @@ let help man_format cmds topic = match topic with
           let page = (topic, 7, "", "", ""), [`S topic; `P "Say something";] in
           `Ok (Cmdliner.Manpage.print man_format Format.std_formatter page)
 
-let list switches =
+let list copts switches =
   let print files_names =
       let max_name_len = List.fold_left
           (fun a (n,fn) ->
@@ -195,11 +200,11 @@ let list switches =
   let print_all switches =
     List.iter (fun s ->
         Printf.printf "# %s\n" s;
-        print @@ Benchmark.find_installed s;
+        print @@ Benchmark.find_installed ?opamroot:copts.opamroot s;
         print_endline ""
       ) switches in
   let switches = match switches with
-    | [] -> Util.Opam.switches
+    | [] -> Util.Opam.switches ~opamroot:copts.opamroot
     | s ->
         StringList.settrip @@
         List.(flatten @@ map Util.Opam.switches_matching s) in
@@ -438,12 +443,13 @@ let help_secs = [
   `P "Use `$(mname) $(i,COMMAND) --help' for help on a single command.";
   `S "BUGS"; `P "Report bugs at <http://github.com/OCamlPro/oparf-macro>.";]
 
-let copts batch output_file ignore_out =
+let copts batch output_file opamroot ignore_out =
   let output =
     if not batch then `None
     else if output_file = "" then `Stdout
     else `File output_file in
   { output;
+    opamroot;
     ignore_out=List.map
         (function
           | "stdout" -> `Stdout
@@ -460,6 +466,10 @@ let output_file =
 
 let copts_t =
   let docs = copts_sect in
+  let opamroot =
+    let doc = "Specify the opam root (default: use OPAMROOT environment \
+        variable)" in
+    Arg.(value & opt (some string) None & info ["opamroot"] ~docv:"<dir>" ~docs ~doc) in
   let batch =
     let doc = "Run in batch mode, i.e. print result files to stdout \
         instead of printing information about progression." in
@@ -467,7 +477,7 @@ let copts_t =
   let ignore_out =
     let doc = "Discard program output (default: none)." in
     Arg.(value & opt (list string) [] & info ["discard"] ~docv:"<channel>" ~docs ~doc) in
-  Term.(pure copts $ batch $ output_file $ ignore_out)
+  Term.(pure copts $ batch $ output_file $ opamroot $ ignore_out)
 
 let help_cmd =
   let topic =
@@ -507,7 +517,7 @@ let perf_cmd =
 
 let switch =
   let doc = "Look for benchmarks installed in another switch, instead of the current one." in
-  Arg.(value & opt string Util.Opam.cur_switch & info ["s"; "switch"] ~docv:"glob_pat" ~doc)
+  Arg.(value & opt (some string) None & info ["s"; "switch"] ~docv:"glob_pat" ~doc)
 
 let run_cmd =
   let force =
@@ -544,7 +554,7 @@ let list_cmd =
     `S "DESCRIPTION";
     `P "List installed OPAM benchmarks."] @ help_secs
   in
-  Term.(pure list $ switches),
+  Term.(pure list $ copts_t $ switches),
   Term.info "list" ~doc ~sdocs:copts_sect ~man
 
 (* Arguments common to summarize, rank. *)

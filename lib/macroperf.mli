@@ -58,17 +58,17 @@ module Util : sig
     val root : string
     (** [root] is either $OPAMROOT or $HOME/.opam if unset *)
 
-    val cur_switch : string
+    val cur_switch : opamroot:string option -> string
     (** [cur_switch] is the name of the current OPAM switch. *)
 
-    val switches : string list
+    val switches : opamroot:string option -> string list
     (** [switches] is the list of installed OPAM switches. *)
 
-    val switches_matching : string -> string list
+    val switches_matching : ?opamroot:string -> string -> string list
     (** [switches_matching glob] is the list of installed OPAM
         switches that match [glob]. *)
 
-    val share : string -> string
+    val share : ?opamroot:string -> string -> string
     (** [share switch] is the name of the share folder under [switch]
         (OPAM switch). *)
   end
@@ -180,6 +180,7 @@ module Benchmark : sig
 
   (** Filesystem *)
   val find_installed :
+    ?opamroot:string ->
     ?glob:[`None | `Matching of string list | `Exclude of string list] ->
     string -> (string * string) list
   (** [find_installed ?glob switch] is the list of (benchmarks, path)
@@ -384,5 +385,6 @@ end
 
 
 module Runner : sig
-  val run_exn : ?use_perf:bool -> ?context_id:string -> interactive:bool -> Benchmark.t -> Result.t
+  val run_exn : ?use_perf:bool -> ?opamroot:string ->
+    ?context_id:string -> interactive:bool -> Benchmark.t -> Result.t
 end
