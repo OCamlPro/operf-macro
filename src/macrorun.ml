@@ -214,6 +214,11 @@ let output_gnuplot_file oc backend datafile topic nb_cols =
   let plot_line n =
     Printf.sprintf "plot for [i=2:%d:2] '%s' u i:i+1:xtic(1) ti col(i) ls i\n" (2*n) datafile
   in
+  let terminal = match backend with
+    | `Qt -> {|set terminal qt enhanced font "terminus,14" persist size 1000, 700|}
+    | `Svg -> "set terminal svg enhanced\n\
+               set output \'result.svg\'"
+  in
   let fmt :  (string -> string -> string -> unit, out_channel, unit) format =
     {|set style line 2 lc rgb '#E41A1C' # red
 set style line 4 lc rgb '#377EB8' # blue
@@ -226,7 +231,7 @@ set style line 16 lc rgb '#F781BF' # pink
 set style histogram errorbars gap 1 title offset character 0, 0, 0
 set style fill solid 1.00 border lt -1
 set style data histograms
-set terminal %s enhanced font "terminus,14" persist size 1000, 700
+%s
 set datafile separator ','
 set boxwidth 0.9 absolute
 set key inside right top vertical Right noreverse noenhanced autotitles nobox
@@ -240,7 +245,7 @@ set yrange [ 0. : 1.25 ] noreverse nowriteback
 %s|}
   in
   let topic = Re_pcre.substitute ~rex:(Re_pcre.regexp "_") ~subst:(fun _ -> "\\\\_") topic in
-  Printf.fprintf oc fmt backend topic (plot_line nb_cols)
+  Printf.fprintf oc fmt terminal topic (plot_line nb_cols)
 
 (* [selectors] are bench _names_ *)
 let summarize output evts ref_ctx_id pp selectors force ctx_ids =
@@ -248,7 +253,7 @@ let summarize output evts ref_ctx_id pp selectors force ctx_ids =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
       (Printf.eprintf
-         "At least one of the requested topics (-e) is invalid. Exiting.\n";
+         "At least one of the requested topics (-t) is invalid. Exiting.\n";
        exit 1)
   in
 
@@ -325,7 +330,7 @@ let summarize output evts ref_ctx_id pp selectors force ctx_ids =
       (match output with
        | "" -> ignore @@ DB2.to_csv stdout data
        | fn -> Util.File.with_oc_safe (fun oc -> ignore @@ DB2.to_csv oc data) fn)
-  | `Qt ->
+  | `Gnuplot backend ->
       let topic = fst @@ TMap.min_binding data |> Topic.to_string in
       let tmp_data, oc_data = Filename.open_temp_file "macrorun" ".data" in
       let nb_ctxs =
@@ -334,12 +339,12 @@ let summarize output evts ref_ctx_id pp selectors force ctx_ids =
          with exn -> (close_out oc_data; raise exn)) in
       let tmp_f, oc = Filename.open_temp_file "macrorun" ".gnu" in
       let () =
-        try output_gnuplot_file oc "qt" tmp_data topic nb_ctxs; close_out oc
+        try output_gnuplot_file oc backend tmp_data topic nb_ctxs; close_out oc
         with exn -> (close_out oc; raise exn) in
       let (_:int) = Sys.command @@ Printf.sprintf "gnuplot %s" tmp_f in
       (if output <> "" then
         Util.File.with_oc_safe
-          (fun oc -> output_gnuplot_file oc "qt" tmp_data topic nb_ctxs) output);
+          (fun oc -> output_gnuplot_file oc backend tmp_data topic nb_ctxs) output);
       Util.FS.rm_r [tmp_f; tmp_data]
 
   | _ -> failwith "Not implemented"
@@ -574,9 +579,9 @@ let normalize =
   Arg.(value & opt string "" & info ["n"; "normalize"] ~docv:"context_id" ~doc)
 
 let backend =
-  let doc = "Select backend (one of 'sexp','csv','qt')." in
+  let doc = "Select backend (one of 'sexp','csv','qt','svg')." in
   let enum_f =
-    ["sexp", `Sexp; "csv", `Csv; "qt", `Qt]
+    ["sexp", `Sexp; "csv", `Csv; "qt", `Gnuplot `Qt; "svg", `Gnuplot `Svg]
   in
   Arg.(value & opt (enum enum_f) `Sexp & info ["b"; "backend"] ~doc)
 
