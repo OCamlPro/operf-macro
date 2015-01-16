@@ -92,7 +92,7 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch selectors skip force =
+let run copts switch topics selectors skip force =
   let opamroot = copts.opamroot in
   let switch = match switch with
     | None -> Util.Opam.cur_switch ~opamroot
@@ -104,6 +104,7 @@ let run copts switch selectors skip force =
       exit 1
   in
   let interactive = copts.output = `None in
+  let topics = List.fold_right TSet.add topics TSet.empty in
 
   let already_run switch b =
     match
@@ -135,6 +136,7 @@ let run copts switch selectors skip force =
     let run_bench filename =
       let open Benchmark in
       let b = load_conv_exn filename in
+      let b = { b with topics = TSet.union topics b.topics } in
       let already_run = (already_run switch b && not force) in
       let binary_missing =
         try Util.FS.is_file (List.hd b.cmd) <> Some true
@@ -533,6 +535,18 @@ let run_cmd =
     let doc = "Inverse benchmark selection. (only when arguments are package globs)." in
     Arg.(value & flag & info ["skip"] ~docv:"benchmark list" ~doc)
   in
+  let topics =
+    let doc = "Additionnal values measured during the benchmark evaluation" in
+    let topic_parser s =
+      try `Ok (Topic.of_string s)
+      with _ -> `Error (Printf.sprintf "%s is not a valid topic" s)
+    in
+    let topic_printer ppf t =
+      Format.pp_print_string ppf (Topic.to_string t)
+    in
+    let converter = topic_parser, topic_printer in
+    Arg.(value & opt_all converter [] & info ["t"; "topic"] ~docv:"evaluated topics" ~doc)
+  in
   let selector =
     let doc = "If the argument is the path to an existing file, \
                it is taken as a benchmark file (.bench), otherwise \
@@ -546,7 +560,7 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ selector $ skip $ force),
+  Term.(pure run $ copts_t $ switch $ topics $ selector $ skip $ force),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 
