@@ -61,7 +61,7 @@ module Util = struct
             (match glob with
              | None -> loop (n'::acc)
              | Some pat ->
-                 let re = Re_glob.globx ~anchored:() pat |> Re.compile in
+                 let re = Re_glob.globx ~anchored:true pat |> Re.compile in
                  if Re.execp re n then loop (n'::acc) else loop acc)
         | _ -> loop acc
         | exception End_of_file ->
@@ -210,7 +210,7 @@ module Util = struct
       List.map (fun s -> String.sub s 0 (String.index s ' ')) aliases
 
     let switches_matching ?opamroot glob =
-      let re = Re_glob.globx ~anchored:() glob |> Re.compile in
+      let re = Re_glob.globx ~anchored:true glob |> Re.compile in
       List.filter (fun s -> Re.execp re s) (switches ~opamroot)
 
     let share ?opamroot s = Opt.default root opamroot / s / "share"
@@ -532,14 +532,14 @@ module Benchmark = struct
     | `None -> l
     | `Matching globs ->
         let res = List.map
-            (fun re -> Re.compile @@ Re_glob.globx ~anchored:() re) globs in
+            (fun re -> Re.compile @@ Re_glob.globx ~anchored:true re) globs in
         List.filter_map (fun (name, path) ->
             if List.(map (fun re -> Re.execp re name) res |> mem true)
             then Some (name, path) else None
           ) l
     | `Exclude globs ->
         let res = List.map
-            (fun re -> Re.compile @@ Re_glob.globx ~anchored:() re) globs in
+            (fun re -> Re.compile @@ Re_glob.globx ~anchored:true re) globs in
         List.filter_map (fun (name, path) ->
             if List.(map (fun re -> Re.execp re name) res |> mem true)
             then None else Some (name, path)

@@ -294,7 +294,7 @@ let summarize output evts ref_ctx_id pp selectors force ctx_ids =
     | [] -> data
     | ctx_ids ->
         let res = List.map
-            (fun p -> Re_glob.globx ~anchored:() p |> Re.compile) ctx_ids in
+            (fun p -> Re_glob.globx ~anchored:true p |> Re.compile) ctx_ids in
         SMap.map
           (SMap.filter
              (fun ctx _ ->
