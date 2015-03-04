@@ -588,9 +588,11 @@ module Summary = struct
       stddev: float;
       mini: float;
       maxi: float;
+      runs: int;
     } with sexp
 
-    let create mean stddev mini maxi = { mean; stddev; mini; maxi; }
+    let create ~mean ~stddev ~mini ~maxi ~runs =
+      { mean; stddev; mini; maxi; runs }
 
     let compare t1 t2 = Pervasives.compare t1.mean t2.mean
     let min t1 t2 = if t1.mean <= t2.mean then t1 else t2
@@ -601,12 +603,18 @@ module Summary = struct
       let maxi, mini = List.fold_left
           (fun (ma, mi) v -> Pervasives.(max v ma, min v mi))
           (neg_infinity, infinity) measures_float in
-      { mean; stddev = sqrt variance; mini; maxi; }
+      { mean; mini; maxi;
+        stddev = sqrt variance;
+        runs = List.length m }
 
     let normalize t =
       if t.mean = 0. then t else
         let m = t.mean in
-        { mean=1.; stddev = t.stddev /. m; mini = t.mini /. m; maxi = t.maxi /. m }
+        { mean=1.;
+          stddev = t.stddev /. m;
+          mini = t.mini /. m;
+          maxi = t.maxi /. m;
+          runs = t.runs }
 
     (* t1 / t2 *)
     let normalize2 t1 t2 =
@@ -615,6 +623,7 @@ module Summary = struct
           stddev = t1.stddev /. t2.mean;
           mini = t1.mini /. t2.mean;
           maxi = t1.maxi /. t2.mean;
+          runs = t1.runs;
         }
   end
 

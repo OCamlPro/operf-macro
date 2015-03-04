@@ -266,11 +266,13 @@ module Summary : sig
                stddev: float;
                mini: float;
                maxi: float;
+               runs: int;
              }
 
     include Sexpable.S with type t := t
 
-    val create : float -> float -> float -> float -> t
+    val create : mean:float -> stddev:float ->
+      mini:float -> maxi:float -> runs:int -> t
 
     val compare : t -> t -> int
     val max : t -> t -> t

@@ -106,8 +106,9 @@ let export
       (fun (name, data) ->
          let cy_a, cy_b, cy_min, cy_max = Core_bench_data.(affine_adjustment ~what:cycles data) in
          let na_a, na_b, na_min, na_max = Core_bench_data.(affine_adjustment ~what:nanos data) in
-         let cy_aggr = Summary.Aggr.create cy_a 0. cy_min cy_max in
-         let na_aggr = Summary.Aggr.create na_a 0. na_min na_max in
+         let runs = List.length data in
+         let cy_aggr = Summary.Aggr.create ~mean:cy_a ~stddev:0. ~mini:cy_min ~maxi:cy_max ~runs in
+         let na_aggr = Summary.Aggr.create ~mean:na_a ~stddev:0. ~mini:na_min ~maxi:na_max ~runs in
          Summary.{
            name; context_id; weight;
            data = TMap.add
