@@ -250,7 +250,7 @@ set yrange [ 0. : 1.25 ] noreverse nowriteback
   Printf.fprintf oc fmt terminal topic (plot_line nb_cols)
 
 (* [selectors] are bench _names_ *)
-let summarize output evts ref_ctx_id pp selectors force ctx_ids =
+let summarize output evts ref_ctx_id pp selectors force ctx_ids no_normalize =
   let evts =
     try List.map Topic.of_string evts
     with Invalid_argument "Topic.of_string" ->
@@ -319,9 +319,12 @@ let summarize output evts ref_ctx_id pp selectors force ctx_ids =
       data DB2.empty in
 
   let data =
-    (match ref_ctx_id with
-     | "" -> DB2.normalize ~against:`Biggest data
-     | context_id -> DB2.normalize ~against:(`Ctx context_id) data)
+    if no_normalize
+    then data
+    else
+      match ref_ctx_id with
+      | "" -> DB2.normalize ~against:`Biggest data
+      | context_id -> DB2.normalize ~against:(`Ctx context_id) data
   in
   match pp with
   | `Sexp ->
@@ -599,6 +602,10 @@ let backend =
   in
   Arg.(value & opt (enum enum_f) `Sexp & info ["b"; "backend"] ~doc)
 
+let no_normalize =
+  let doc = "Don't normalize values." in
+  Arg.(value & flag & info ["no-normalize"] ~doc)
+
 let summarize_cmd =
   let force =
     let doc = "Force rebuilding the summary files." in
@@ -616,7 +623,7 @@ let summarize_cmd =
     `P "Produce a summary of the result of the desired benchmarks."] @ help_secs
   in
   Term.(pure summarize $ output_file $ topics
-        $ normalize $ backend $ selector $ force $ switches),
+        $ normalize $ backend $ selector $ force $ switches $ no_normalize),
   Term.info "summarize" ~doc ~man
 
 let rank_cmd =
