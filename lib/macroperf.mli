@@ -388,5 +388,6 @@ end
 
 module Runner : sig
   val run_exn : ?use_perf:bool -> ?opamroot:string ->
-    ?context_id:string -> interactive:bool -> Benchmark.t -> Result.t
+    ?context_id:string -> interactive:bool -> fixed:bool ->
+    Benchmark.t -> Result.t
 end

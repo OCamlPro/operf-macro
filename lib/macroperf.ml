@@ -879,7 +879,7 @@ module Process = struct
     confidence = 0.05;
   }
 
-  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~interactive (f : unit -> Execution.t) =
+  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~fixed ~interactive (f : unit -> Execution.t) =
 
     let run_until ~probability ~confidence (init_acc : Execution.t list) =
       let rec run_until (nb_iter, (acc : Execution.t list)) =
@@ -901,20 +901,29 @@ module Process = struct
     Unix.putenv "OCAML_GC_STATS" "";
     match exec with
     | `Ok _ as e ->
-        let duration = Execution.duration e in
-        (match duration with
-        | t when t < fast.max_duration -> (* Fast *)
-            run_until
-              ~probability:fast.probability
-              ~confidence:fast.confidence []
-        | t when t < slow.max_duration -> (* Slow *)
-            run_until
-              ~probability:slow.probability
-              ~confidence:slow.confidence []
-        | t ->                            (* Slower: keep the first execution *)
-            run_until
-              ~probability:slower.probability
-              ~confidence:slower.confidence [exec])
+        begin match fixed with
+          | Some n ->
+              let r = ref [] in
+              for i = 0 to n - 1 do
+                r := f () :: !r
+              done;
+              !r
+          | None ->
+              let duration = Execution.duration e in
+              (match duration with
+               | t when t < fast.max_duration -> (* Fast *)
+                   run_until
+                     ~probability:fast.probability
+                     ~confidence:fast.confidence []
+               | t when t < slow.max_duration -> (* Slow *)
+                   run_until
+                     ~probability:slow.probability
+                     ~confidence:slow.confidence []
+               | t ->                            (* Slower: keep the first execution *)
+                   run_until
+                     ~probability:slower.probability
+                     ~confidence:slower.confidence [exec])
+        end
     | other -> [other]
 
   let data_of_gc_stats () =
@@ -1037,11 +1046,20 @@ module Runner = struct
     perf: SSet.t;
   }
 
-  let run_exn ?(use_perf=false) ?opamroot ?context_id ~interactive b =
+  let run_exn ?(use_perf=false) ?opamroot ?context_id ~interactive ~fixed b =
     let open Benchmark in
     let context_id = match context_id with
       | Some context_id -> context_id
       | None -> Util.Opam.cur_switch ~opamroot in
+
+    let fixed =
+      if fixed
+      then match b.speed with
+        | `Fast -> Some 30
+        | `Slow -> Some 10
+        | `Slower -> Some 3
+      else None
+    in
 
     (* We run benchmarks in a temporary directory that we create now. *)
     let temp_dir = Filename.temp_file "macrorun" "" in
@@ -1082,7 +1100,7 @@ module Runner = struct
 
     if interactive then
       Printf.printf "Running benchmark %s (compiled with OCaml %s)... %!" b.name context_id;
-    let execs = run_execs execs b in
+    let execs = run_execs execs b ~fixed in
 
     (* Cleanup temporary directory *)
     Util.FS.rm_r [temp_dir];

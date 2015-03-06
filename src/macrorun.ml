@@ -62,13 +62,13 @@ let make_bench_and_run copts cmd topics =
       ~name
       ~descr:("Benchmark of " ^ name)
       ~cmd
-      ~speed:`Fast
+      ~speed:`Slower
       ~topics ()
   in
 
   (* Run the benchmark *)
   let interactive = copts.output = `None in
-  let res = Runner.run_exn ~interactive bench in
+  let res = Runner.run_exn ~interactive ~fixed:false bench in
 
   (* Write the result in the file specified by -o, or stdout and maybe
      in cache as well *)
@@ -92,7 +92,7 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch topics selectors skip force =
+let run copts switch topics selectors skip force fixed =
   let opamroot = copts.opamroot in
   let switch = match switch with
     | None -> Util.Opam.cur_switch ~opamroot
@@ -152,7 +152,7 @@ let run copts switch topics selectors skip force =
            in let reason_str = String.concat ", " reason in
            Printf.printf "Skipping %s (%s)\n" b.name reason_str)
       else
-        let res = Runner.run_exn ?opamroot ~context_id:switch ~interactive b in
+        let res = Runner.run_exn ?opamroot ~context_id:switch ~interactive ~fixed b in
         write_res_copts copts res
     in
     match kind_of_file selector with
@@ -538,6 +538,10 @@ let run_cmd =
     let doc = "Inverse benchmark selection. (only when arguments are package globs)." in
     Arg.(value & flag & info ["skip"] ~docv:"benchmark list" ~doc)
   in
+  let fixed =
+    let doc = "Fixed execution time." in
+    Arg.(value & flag & info ["fixed"] ~doc)
+  in
   let topics =
     let doc = "Additionnal values measured during the benchmark evaluation" in
     let topic_parser s =
@@ -563,7 +567,7 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ topics $ selector $ skip $ force),
+  Term.(pure run $ copts_t $ switch $ topics $ selector $ skip $ force $ fixed),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 
