@@ -888,7 +888,7 @@ module Process = struct
         match Statistics.enough_samples ~probability ~confidence durations with
         | true ->
             if interactive then
-              Printf.printf "%d times.\n" nb_iter;
+              Printf.printf "%d times.\n%!" nb_iter;
             acc
         | false ->
             let exec = f () in
@@ -907,6 +907,8 @@ module Process = struct
               for i = 0 to n - 1 do
                 r := f () :: !r
               done;
+              if interactive then
+                Printf.printf "%d times.\n%!" n;
               !r
           | None ->
               let duration = Execution.duration e in
