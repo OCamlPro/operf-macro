@@ -6,23 +6,23 @@
 OCaml. It provides a framework to define, run, and measure metrics
 from such programs. Those include the elapsed time, the elapsed cycles
 and OCaml GC stats. The aim of *macro-benchmarks* is to measure the
-performance of the particular compiler that generated it. I can also
+performance of the particular compiler that generated it. It can also
 be used to compare different versions of a particular program, or
-comparing the performance of several programs whose functionality is
+to compare the performance of several programs whose functionality is
 equivalent.
 
 Contrary to *micro-benchmarks* that are OCaml functions of some
 parameter(s) representing the typical size of the problem (size of an
 array to iterate on, number of iterations of a loop, etc.),
-macro-benchmarks do generally not have a parameter. The other
+macro-benchmarks generally do not have parameters. The other
 difference is that, as said above, they are whole OCaml programs as
 opposed to functions.
 
-Eventually, the *operf-macro* framework will serve as an unification
-layer for presenting results from micro-benchmarks as well. Some tools
+Eventually, the *operf-macro* framework will serve as an unified
+layer to present results from micro-benchmarks as well. Some tools
 are already available, for instance the `injector` program can import
 inline micro-benchmark results from the Jane Street *Core* library
-into the operf-macro framework.
+into the *operf-macro* framework.
 
 For now, it is however safer to stick with the micro-benchmarking
 tools already available like
@@ -38,7 +38,7 @@ The other important thing to have in mind from the start is that
 * macro-benchmarks are OPAM packages
 * compilers are OPAM switches
 
-Although there are means to bypass this design rule, it is probably
+Although there are means to bypass this design principle, it is probably
 easier to stick to it. Some pointers will be given in the Usage
 section regarding running independent benchmarks. A method will also
 be given to transform any OCaml installation into an OPAM switch.
@@ -77,7 +77,7 @@ $ macrorun list "4.01*"
 where `[glob]*` is any number of arguments that will be treated as a
 glob (shell) pattern for a complier version. In this case, all
 installed benchmarks for available compiler switches whose name starts
-by "4.01" will be printed on screen.
+by "4.01" will be listed on screen.
 
 ### Running benchmarks
 
@@ -106,7 +106,7 @@ the selected benchmarks and only those.
 `macrorun` stores its results in `~/.cache/operf/macro`. Here you will
 find one directory per benchmark, and inside, one `.result` file per
 compiler. Inside the file you will find a *s-expression* that is the
-serialized version of `macrorun`'s `Result` value. This include mostly
+serialized version of `macrorun`'s `Result` value. This includes mostly
 the individual measurements per execution, such as real time, cycles,
 and so on.
 
@@ -157,7 +157,7 @@ $ macrorun perf /path/to/exe arg1 .. argn --batch
 
 This will perform a benchmark of the program specified in the
 commandline and print the result as an s-expression in stdout. This
-s-expression include an inner s-expression describing the benchmark
+s-expression includes an inner s-expression describing the benchmark
 source, and this is your benchmark description. Write this in a
 `.bench` file.
 
@@ -234,6 +234,7 @@ Please add at the end of your benchmark:
   try
     let fn = Sys.getenv "OCAML_GC_STATS" in
     let oc = open_out fn in
-    Gc.print_stat oc
+    Gc.print_stat oc;
+    close_out oc
   with _ -> ()
 ```
