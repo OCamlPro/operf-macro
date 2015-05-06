@@ -48,7 +48,7 @@ be given to transform any OCaml installation into an OPAM switch.
 You need OPAM version 1.2.
 
 ```
-$ opam repo add operf-macro git://github.com/vbmithr/opam-bench-repo
+$ opam repo add operf-macro git://github.com/OCamlPro/opam-bench-repo
 $ (optionally) opam install core async async_smtp core_bench
 $ opam install operf-macro all-bench
 ```
