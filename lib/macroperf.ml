@@ -307,27 +307,32 @@ module Topic = struct
     (* Use the perf-stat(1) command or ocaml-libperf *)
     | Perf : string kind
 
+    (* The executable size *)
+    | Size : unit kind
+
   type t = Topic : 'a * 'a kind -> t
 
   let of_string s =
-    try Topic (Gc.of_string_exn s, Gc)
-    with _ ->
-      try
-        let s = Perf.Attr.Kind.(of_string s |> to_string) in
-        Topic (s, Perf)
+    if s = "size" then Topic ((), Size)
+    else try Topic (Gc.of_string_exn s, Gc)
       with _ ->
-        (match s with
-         | "time_real" -> Topic (Time.Real, Time)
-         | "time_sys" -> Topic (Time.Sys, Time)
-         | "time_user" -> Topic (Time.User, Time)
-         | _ -> invalid_arg "Topic.of_string"
-        )
+        try
+          let s = Perf.Attr.Kind.(of_string s |> to_string) in
+          Topic (s, Perf)
+        with _ ->
+          (match s with
+           | "time_real" -> Topic (Time.Real, Time)
+           | "time_sys" -> Topic (Time.Sys, Time)
+           | "time_user" -> Topic (Time.User, Time)
+           | _ -> invalid_arg "Topic.of_string"
+          )
 
   let to_string t =
     match t with
     | Topic (t, Time) -> "time_" ^ Time.to_string t
     | Topic (gc, Gc) -> Gc.to_string gc
     | Topic (p, Perf) -> p
+    | Topic (_, Size) -> "size"
 
   let sexp_of_t t =
     let open Sexplib.Sexp in
@@ -335,6 +340,7 @@ module Topic = struct
     | Topic (time, Time) -> List [Atom "Time"; Time.sexp_of_t time]
     | Topic (gc, Gc) -> List [Atom "Gc"; Gc.sexp_of_t gc]
     | Topic (perf, Perf) -> List [Atom "Perf"; sexp_of_string perf]
+    | Topic (_, Size) -> Atom "Size"
 
   let t_of_sexp s =
     let open Sexplib.Sexp in
@@ -342,6 +348,7 @@ module Topic = struct
     | List [Atom "Time"; t] -> Topic (Time.t_of_sexp t, Time)
     | List [Atom "Gc"; t] -> Topic (Gc.t_of_sexp t, Gc)
     | List [Atom "Perf"; t] -> Topic (string_of_sexp t, Perf)
+    | Atom "Size" -> Topic ((), Size)
     | _ -> invalid_arg "t_of_sexp"
 
   let compare = Pervasives.compare
@@ -484,6 +491,7 @@ module Benchmark = struct
     descr: string with default("");
     cmd: string list;
     cmd_check: string list with default([]);
+    binary: string option with default(None);
     env: string list option with default(None);
     speed: speed with default(`Fast);
     timeout: int with default(600);
@@ -493,8 +501,8 @@ module Benchmark = struct
   } with sexp
 
   let make ~name ?(descr="") ~cmd ?(cmd_check=[])
-      ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
-    { name; descr; cmd; cmd_check; env; speed; timeout; weight; discard;
+      ?binary ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
+    { name; descr; cmd; cmd_check; binary; env; speed; timeout; weight; discard;
       topics = TSet.of_list topics; }
 
   let load_conv fn =
@@ -551,16 +559,28 @@ module Result = struct
     bench: Benchmark.t;
     context_id: string;
     execs: Execution.t list;
+    size: int option with default(None);
   } with sexp
 
   let make ~bench ?(context_id="") ~execs () =
+    let size =
+      let size file =
+        try Some Unix.((stat file).st_size) with
+        | _ -> None
+      in
+      match bench.Benchmark.binary with
+      | Some file -> size file
+      | None -> match bench.Benchmark.cmd with
+        | [] -> None
+        | cmd :: _ -> size cmd
+    in
     let execs = List.map
         (fun e -> List.fold_left
             (fun a ch -> Execution.strip ch a)
             e bench.Benchmark.discard
         )
         execs in
-    { bench; context_id; execs; }
+    { bench; context_id; execs; size }
 
   let strip chan t = match chan with
     | `Stdout ->
@@ -588,7 +608,7 @@ module Summary = struct
       stddev: float;
       mini: float;
       maxi: float;
-      runs: int;
+      runs: int with default(1);
     } with sexp
 
     let create ~mean ~stddev ~mini ~maxi ~runs =
@@ -625,6 +645,10 @@ module Summary = struct
           maxi = t1.maxi /. t2.mean;
           runs = t1.runs;
         }
+
+    let constant v =
+      { mean = v; stddev = 0.; mini = v; maxi = v; runs = 1 }
+
   end
 
   type t = {
@@ -643,6 +667,11 @@ module Summary = struct
     let data = data
                |> TMap.lmerge
                |> TMap.map @@ Aggr.of_measures in
+    let data = match r.Result.size with
+      | None -> data
+      | Some size ->
+          TMap.add Topic.(Topic((),Size)) (Aggr.constant (float size)) data
+    in
     { name = r.bench.Benchmark.name;
       context_id = r.Result.context_id;
       weight = r.bench.Benchmark.weight;
@@ -1085,6 +1114,7 @@ module Runner = struct
            | Topic (t, Time) -> { a with time = TimeSet.add t a.time }
            | Topic (t, Gc) -> { a with gc = GcSet.add t a.gc }
            | Topic (t, Perf) -> { a with perf= SSet.add t a.perf }
+           | Topic (t, Size) -> a
         )
         b.topics
         { time = TimeSet.empty;

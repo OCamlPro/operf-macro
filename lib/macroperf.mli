@@ -111,6 +111,9 @@ module Topic : sig
     (** Use the perf-stat(1) command or ocaml-libperf *)
     | Perf : string kind
 
+    (** The executable size *)
+    | Size : unit kind
+
   type t =  Topic : 'a * 'a kind -> t
 
   val of_string : string -> t
@@ -138,6 +141,8 @@ module Benchmark : sig
     cmd_check: string list;
     (** Command line of the check program. It is used to check if the
         benchmark has executed correctly. *)
+    binary: string option;
+    (** The program that will be run. It is only used to measure its size. *)
     env: string list option;
     (** Optional environment for the benchmark *)
     speed: speed;
@@ -161,6 +166,7 @@ module Benchmark : sig
     ?descr:string ->
     cmd:string list ->
     ?cmd_check:string list ->
+    ?binary:string ->
     ?env:string list ->
     speed:speed ->
     ?timeout:int ->
@@ -233,6 +239,8 @@ module Result : sig
     (** This contain the list of execution results, containing
         measurements plus additional useful information about the
         individual runs if the execution was possible. *)
+    size: int option;
+    (** The size of the executable *)
   }
   (** Type of a result. This can correspond to several runs of the
       same benchmark,if requested measures cannot be performed in one
@@ -288,6 +296,9 @@ module Summary : sig
     val normalize2 : t -> t -> t
     (** [normalize2 a b] is [b] where all the fields are divided by
         [b.mean]. *)
+
+    val constant : float -> t
+    (** the aggr representing a constant *)
   end
 
   type t = {
