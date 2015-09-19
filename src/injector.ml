@@ -104,12 +104,14 @@ let export
   in
   let summaries = List.map
       (fun (name, data) ->
+         let success = true in
          let cy_a, cy_b, cy_min, cy_max = Core_bench_data.(affine_adjustment ~what:cycles data) in
          let na_a, na_b, na_min, na_max = Core_bench_data.(affine_adjustment ~what:nanos data) in
          let runs = List.length data in
-         let cy_aggr = Summary.Aggr.create ~mean:cy_a ~stddev:0. ~mini:cy_min ~maxi:cy_max ~runs in
-         let na_aggr = Summary.Aggr.create ~mean:na_a ~stddev:0. ~mini:na_min ~maxi:na_max ~runs in
+         let cy_aggr = Summary.Aggr.create ~success ~mean:cy_a ~stddev:0. ~mini:cy_min ~maxi:cy_max ~runs in
+         let na_aggr = Summary.Aggr.create ~success ~mean:na_a ~stddev:0. ~mini:na_min ~maxi:na_max ~runs in
          Summary.{
+           success;
            name; context_id; weight;
            data = TMap.add
                Topic.(Topic ("cycles", Perf)) cy_aggr

@@ -604,6 +604,7 @@ end
 module Summary = struct
   module Aggr = struct
     type t = {
+      success: bool with default(true);
       mean: float;
       stddev: float;
       mini: float;
@@ -611,26 +612,27 @@ module Summary = struct
       runs: int with default(1);
     } with sexp
 
-    let create ~mean ~stddev ~mini ~maxi ~runs =
-      { mean; stddev; mini; maxi; runs }
+    let create ~success ~mean ~stddev ~mini ~maxi ~runs =
+      { success; mean; stddev; mini; maxi; runs }
 
     let compare t1 t2 = Pervasives.compare t1.mean t2.mean
     let min t1 t2 = if t1.mean <= t2.mean then t1 else t2
     let max t1 t2 = if t1.mean >= t2.mean then t1 else t2
-    let of_measures m =
+    let of_measures ~success m =
       let measures_float = List.map Measure.to_float m in
       let mean, variance = Statistics.mean_variance measures_float in
       let maxi, mini = List.fold_left
           (fun (ma, mi) v -> Pervasives.(max v ma, min v mi))
           (neg_infinity, infinity) measures_float in
-      { mean; mini; maxi;
+      { success; mean; mini; maxi;
         stddev = sqrt variance;
         runs = List.length m }
 
     let normalize t =
       if t.mean = 0. then t else
         let m = t.mean in
-        { mean=1.;
+        { t with
+          mean=1.;
           stddev = t.stddev /. m;
           mini = t.mini /. m;
           maxi = t.maxi /. m;
@@ -639,7 +641,8 @@ module Summary = struct
     (* t1 / t2 *)
     let normalize2 t1 t2 =
       if t2.mean = 0. then t1 else
-        { mean = t1.mean /. t2.mean;
+        { t1 with
+          mean = t1.mean /. t2.mean;
           stddev = t1.stddev /. t2.mean;
           mini = t1.mini /. t2.mean;
           maxi = t1.maxi /. t2.mean;
@@ -647,11 +650,12 @@ module Summary = struct
         }
 
     let constant v =
-      { mean = v; stddev = 0.; mini = v; maxi = v; runs = 1 }
+      { success = true; mean = v; stddev = 0.; mini = v; maxi = v; runs = 1 }
 
   end
 
   type t = {
+    success: bool with default(true);
     name: string;
     context_id: string;
     weight: float;
@@ -661,18 +665,23 @@ module Summary = struct
   let of_result r =
     let open Execution in
     let open Result in
+    let success = List.for_all (function
+        | `Ok {process_status = Unix.WEXITED 0; _} -> true
+        | _ -> false)
+        r.execs in
     let data = List.fold_left
         (fun a e -> match e with | `Ok e -> e.data::a | _ -> a)
         [] r.execs in
     let data = data
                |> TMap.lmerge
-               |> TMap.map @@ Aggr.of_measures in
+               |> TMap.map @@ Aggr.of_measures ~success in
     let data = match r.Result.size with
       | None -> data
       | Some size ->
           TMap.add Topic.(Topic((),Size)) (Aggr.constant (float size)) data
     in
-    { name = r.bench.Benchmark.name;
+    { success;
+      name = r.bench.Benchmark.name;
       context_id = r.Result.context_id;
       weight = r.bench.Benchmark.weight;
       data;
