@@ -270,7 +270,8 @@ end
 
 module Summary : sig
   module Aggr : sig
-    type t = { mean: float;
+    type t = { success: bool;
+               mean: float;
                stddev: float;
                mini: float;
                maxi: float;
@@ -279,14 +280,14 @@ module Summary : sig
 
     include Sexpable.S with type t := t
 
-    val create : mean:float -> stddev:float ->
+    val create : success:bool -> mean:float -> stddev:float ->
       mini:float -> maxi:float -> runs:int -> t
 
     val compare : t -> t -> int
     val max : t -> t -> t
     val min : t -> t -> t
 
-    val of_measures : Measure.t list -> t
+    val of_measures : success:bool -> Measure.t list -> t
     (** [of_measures weight m] is a t *)
 
     val normalize : t -> t
@@ -302,6 +303,7 @@ module Summary : sig
   end
 
   type t = {
+    success: bool;
     name: string;
     context_id: string;
     weight: float;
