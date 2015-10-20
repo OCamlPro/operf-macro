@@ -207,7 +207,11 @@ module Util = struct
 
     let switches ~opamroot =
       let aliases = File.lines_of_file @@ Opt.default root opamroot / "aliases" in
-      List.map (fun s -> String.sub s 0 (String.index s ' ')) aliases
+      List.fold_left
+        (fun acc s -> match Re_pcre.split ~rex:Re.(compile space) s with
+          | name::_ -> name::acc
+          | _ -> acc)
+        [] aliases
 
     let switches_matching ?opamroot glob =
       let re = Re_glob.globx ~anchored:true glob |> Re.compile in
