@@ -39,11 +39,18 @@ let write_res_copts copts res =
   let rex = Re_pcre.regexp " " in
   let name = res.Result.bench.Benchmark.name |> String.trim in
   let name = Re_pcre.substitute ~rex ~subst:(fun _ -> "_") name in
+  let interactive = copts.output = `None in
+  let opamroot = copts.opamroot in
   try
     let res_file =
       Util.FS.(macro_dir / name / res.Result.context_id ^ ".result") in
     XDGBaseDir.mkdir_openfile
-      (fun fn -> Result.save_hum fn res) res_file
+      (fun fn ->
+         let filename = Filename.chop_extension fn in
+         let outputname = filename ^ ".output" in
+         Result.save_output outputname res;
+         let res = Runner.run_check ?opamroot ~interactive res in
+         Result.save_hum fn res) res_file
   with Not_found -> ()
 
 (* Generic function to create and run a benchmark *)

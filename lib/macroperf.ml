@@ -495,6 +495,7 @@ module Benchmark = struct
     descr: string with default("");
     cmd: string list;
     cmd_check: string list with default([]);
+    file_check: (string * string) list with default([]);
     binary: string option with default(None);
     env: string list option with default(None);
     speed: speed with default(`Fast);
@@ -504,10 +505,10 @@ module Benchmark = struct
     topics: TSet.t with default(TSet.empty);
   } with sexp
 
-  let make ~name ?(descr="") ~cmd ?(cmd_check=[])
+  let make ~name ?(descr="") ~cmd ?(cmd_check=[]) ?(file_check=[])
       ?binary ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
-    { name; descr; cmd; cmd_check; binary; env; speed; timeout; weight; discard;
-      topics = TSet.of_list topics; }
+    { name; descr; cmd; cmd_check; file_check; binary; env; speed; timeout;
+      weight; discard; topics = TSet.of_list topics; }
 
   let load_conv fn =
     Sexplib.Sexp.load_sexp_conv fn t_of_sexp
@@ -564,6 +565,7 @@ module Result = struct
     context_id: string;
     execs: Execution.t list;
     size: int option with default(None);
+    check: bool option;
   } with sexp
 
   let make ~bench ?(context_id="") ~execs () =
@@ -584,7 +586,8 @@ module Result = struct
             e bench.Benchmark.discard
         )
         execs in
-    { bench; context_id; execs; size }
+    let check = None in
+    { bench; context_id; execs; size; check }
 
   let strip chan t = match chan with
     | `Stdout ->
@@ -603,6 +606,16 @@ module Result = struct
 
   let output_hum oc s =
     sexp_of_t s |> Sexplib.Sexp.output_hum oc
+
+  let save_output fn s =
+    let oc = open_out fn in
+    (match s.execs with
+     | (`Ok exec) :: _ -> Printf.fprintf oc "%s" exec.Execution.stdout
+     | `Timeout :: _ -> Printf.fprintf oc "Timeout"
+     | (`Error str) :: _ -> Printf.fprintf oc "Error :\n%s" str
+     | _ -> Printf.fprintf oc "No Execution");
+    close_out oc
+
 end
 
 module Summary = struct
@@ -1090,6 +1103,78 @@ module Runner = struct
     perf: SSet.t;
   }
 
+  let make_tmp_file suffix =
+    let name = Filename.temp_file "" suffix in
+    name, Unix.openfile name [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] 0o644
+
+  let run_diff file1 file2 =
+    let prog = "diff" in
+    let args = [| prog; "-q"; file1; file2 |] in
+    let cmd = Array.fold_left (fun acc arg -> acc ^ arg ^ " ") "" args in
+    let _stdout_name, fd_stdout = make_tmp_file ".out" in
+    let pid = Unix.create_process prog args Unix.stdin fd_stdout Unix.stderr in
+    Unix.close fd_stdout;
+    let rpid, status = Unix.waitpid [] pid in
+    assert(rpid = pid);
+    match status with
+    | Unix.WEXITED 0 -> true
+    | Unix.WEXITED 1 -> false
+    | Unix.WEXITED n ->
+        (Printf.eprintf "Command return code %i:\n  %s\n%!" n cmd; false)
+    | Unix.WSIGNALED n ->
+        (Printf.eprintf "Command killed with signal %i:\n  %s\n%!" n cmd; false)
+    | Unix.WSTOPPED _n -> false
+
+  let run_command prog args =
+    let cmd = Array.fold_left (fun acc arg -> acc ^ arg ^ " ") "" args in
+    let pid = Unix.create_process prog args Unix.stdin Unix.stdout Unix.stderr in
+    Unix.sleep 3;
+    let rpid, status = Unix.waitpid [] pid in
+    assert(rpid = pid);
+    match status with
+    | Unix.WEXITED 0 -> true
+    | Unix.WEXITED n -> (Printf.eprintf "Command return code %i:\n  %s\n%!" n cmd; false)
+    | Unix.WSIGNALED n ->
+        (Printf.eprintf "Command killed with signal %i:\n  %s\n%!" n cmd; false)
+    | Unix.WSTOPPED _n -> false
+
+  let run_file_check ?opamroot ~interactive files res =
+    let open Benchmark in
+    let open Result in
+    let b = res.bench in
+    let comp = Util.Opam.cur_switch ~opamroot in
+    let bench_dir = Filename.concat Util.FS.macro_dir b.name in
+    let output_file = Filename.concat bench_dir (comp ^ ".output") in
+    let files =
+      List.map (fun (file1, file2) ->
+          if file1 = "$OUTPUT$"
+          then (output_file, file2)
+          else if file2  = "$OUTPUT$" then (file1, output_file)
+          else (file1, file2)) files in
+    let checks = List.map (fun (file1, file2) -> run_diff file1 file2) files in
+    let check_res =
+      if List.exists (fun check -> check = false) checks
+      then Some false
+      else Some true in
+    { res with check = check_res }
+
+  let run_check ?opamroot ~interactive res =
+    let open Benchmark in
+    let open Result in
+    let b = res.bench in
+    if b.file_check <> []
+    then run_file_check ?opamroot ~interactive b.file_check res
+    else
+    if b.cmd_check <> [] then
+      let macro_dir = Util.FS.macro_dir in
+      let prog = List.hd b.cmd_check in
+      let args_list = List.map (fun arg ->
+          if arg = "$MACRODIR$" then macro_dir else arg) b.cmd_check in
+      let args = Array.of_list args_list in
+      let check_res = if run_command prog args then (Some true) else (Some false) in
+      { res with check = check_res }
+    else res
+
   let run_exn ?(use_perf=false) ?opamroot ?context_id ~interactive ~fixed b =
     let open Benchmark in
     let context_id = match context_id with
@@ -1106,6 +1191,7 @@ module Runner = struct
     in
 
     (* We run benchmarks in a temporary directory that we create now. *)
+    let cwd = Unix.getcwd () in
     let temp_dir = Filename.temp_file "macrorun" "" in
     Unix.unlink temp_dir;
     Unix.(try
@@ -1146,6 +1232,7 @@ module Runner = struct
     if interactive then
       Printf.printf "Running benchmark %s (compiled with OCaml %s)... %!" b.name context_id;
     let execs = run_execs execs b ~fixed in
+    Unix.chdir cwd;
 
     (* Cleanup temporary directory *)
     Util.FS.rm_r [temp_dir];
