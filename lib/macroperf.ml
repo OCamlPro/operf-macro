@@ -462,7 +462,6 @@ module Execution = struct
     stdout: string;
     stderr: string;
     data: Measure.t TMap.t;
-    checked: bool option
   } with sexp
 
   type t = [ `Ok of exec | `Timeout | `Error of string ]
@@ -998,7 +997,7 @@ end
 module Perf_wrapper = struct
   include Process
 
-  let run_once ?env ?timeout ?chk_cmd cmd evts =
+  let run_once ?env ?timeout cmd evts =
     let evts = SSet.elements evts in
     let perf_cmdline = ["perf"; "stat"; "-x,"; ] in
     let perf_cmdline = match evts with
@@ -1046,10 +1045,6 @@ module Perf_wrapper = struct
           stdout=stdout_string;
           stderr=""; (* Perf writes its result on stderr... *)
           data;
-          checked=(match chk_cmd with
-              | None -> None
-              | Some chk -> (match Sys.command (String.concat " " chk)
-                             with 0 -> Some true | _ -> Some false))
         }
     with
     | Unix.Unix_error (Unix.EINTR, _, _) -> `Timeout
@@ -1057,16 +1052,16 @@ module Perf_wrapper = struct
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
         Execution.error exn
 
-  let run ?env ?timeout ?chk_cmd cmd evts =
+  let run ?env ?timeout cmd evts =
     (* if evts = SSet.empty then [] *)
     (* else *)
-      run (fun () -> run_once ?env ?timeout ?chk_cmd cmd evts)
+      run (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Libperf_wrapper = struct
   include Process
 
-  let run_once ?env ?timeout ?chk_cmd cmd evts =
+  let run_once ?env ?timeout cmd evts =
     let open Perf in
     let attrs = SSet.elements evts |> List.map Attr.Kind.of_string in
     let attrs = List.map Perf.Attr.make attrs in
@@ -1084,11 +1079,7 @@ module Libperf_wrapper = struct
              | false -> []
              | true -> data_of_gc_stats ())
         in
-        let checked = match chk_cmd with
-          | None -> None
-          | Some chk -> (match Sys.command (String.concat " " chk) with
-              | 0 -> Some true | _ -> Some false) in
-        `Ok Execution.{ process_status; stdout; stderr; data; checked; }
+        `Ok Execution.{ process_status; stdout; stderr; data; }
     | `Timeout -> `Timeout
     | `Exn e -> Execution.error e
 
