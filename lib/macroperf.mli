@@ -141,6 +141,9 @@ module Benchmark : sig
     cmd_check: string list;
     (** Command line of the check program. It is used to check if the
         benchmark has executed correctly. *)
+    file_check: (string * string) list;
+    (** List of files to be checked. It is used to check if the
+        benchmark has executed correctly. *)
     binary: string option;
     (** The program that will be run. It is only used to measure its size. *)
     env: string list option;
@@ -168,6 +171,7 @@ module Benchmark : sig
     ?descr:string ->
     cmd:string list ->
     ?cmd_check:string list ->
+    ?file_check:(string * string) list ->
     ?binary:string ->
     ?env:string list ->
     speed:speed ->
@@ -215,7 +219,6 @@ module Execution : sig
     stdout: string;
     stderr: string;
     data: Measure.t TMap.t;
-    checked: bool option;
   }
   (** Type representing the successful execution of a benchmark. *)
 
@@ -244,6 +247,8 @@ module Result : sig
         individual runs if the execution was possible. *)
     size: int option;
     (** The size of the executable *)
+    check: bool option;
+    (** Result of cmd_check or file_check *)
   }
   (** Type of a result. This can correspond to several runs of the
       same benchmark,if requested measures cannot be performed in one
@@ -269,6 +274,7 @@ module Result : sig
 
   val save_hum : string -> t -> unit
   val output_hum : out_channel -> t -> unit
+  val save_output : string -> t -> unit
 end
 
 module Summary : sig
@@ -406,4 +412,7 @@ module Runner : sig
   val run_exn : ?use_perf:bool -> ?opamroot:string ->
     ?context_id:string -> interactive:bool -> fixed:bool ->
     Benchmark.t -> Result.t
+
+  val run_check : ?opamroot:string -> interactive:bool -> Result.t -> Result.t
+
 end
