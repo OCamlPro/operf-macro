@@ -157,6 +157,8 @@ module Benchmark : sig
         the result. *)
     topics: TSet.t;
     (** Set of quantities to measure *)
+    return_value: int;
+    (** The expected return value from the bench program (generally 0) *)
   }
 
   include Sexpable.S with type t := t
@@ -173,6 +175,7 @@ module Benchmark : sig
     ?weight:float ->
     ?discard:[`Stdout | `Stderr] list ->
     topics:Topic.t list ->
+    ?return_value:int ->
     unit ->
     t
 

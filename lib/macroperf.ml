@@ -502,12 +502,15 @@ module Benchmark = struct
     weight: float with default(1.);
     discard: [`Stdout | `Stderr] list with default([]);
     topics: TSet.t with default(TSet.empty);
+    return_value: int with default(0);
   } with sexp
 
   let make ~name ?(descr="") ~cmd ?(cmd_check=[])
-      ?binary ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics () =
+      ?binary ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics
+      ?(return_value=0) () =
     { name; descr; cmd; cmd_check; binary; env; speed; timeout; weight; discard;
-      topics = TSet.of_list topics; }
+      topics = TSet.of_list topics;
+      return_value; }
 
   let load_conv fn =
     Sexplib.Sexp.load_sexp_conv fn t_of_sexp
@@ -670,7 +673,8 @@ module Summary = struct
     let open Execution in
     let open Result in
     let success = List.for_all (function
-        | `Ok {process_status = Unix.WEXITED 0; _} -> true
+        | `Ok {process_status = Unix.WEXITED code; _} ->
+            code = r.bench.Benchmark.return_value
         | _ -> false)
         r.execs in
     let data = List.fold_left
