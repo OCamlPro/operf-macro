@@ -1098,36 +1098,26 @@ module Runner = struct
     let name = Filename.temp_file "" suffix in
     name, Unix.openfile name [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] 0o644
 
-  let run_diff file1 file2 =
-    let prog = "diff" in
-    let args = [| prog; "-q"; file1; file2 |] in
+  let run_command ?(discard_stdout=false) prog args =
     let cmd = Array.fold_left (fun acc arg -> acc ^ arg ^ " ") "" args in
-    let _stdout_name, fd_stdout = make_tmp_file ".out" in
+    let fd_stdout = 
+      if discard_stdout then snd (make_tmp_file ".out") 
+      else Unix.stdout in
     let pid = Unix.create_process prog args Unix.stdin fd_stdout Unix.stderr in
-    Unix.close fd_stdout;
     let rpid, status = Unix.waitpid [] pid in
     assert(rpid = pid);
-    match status with
-    | Unix.WEXITED 0 -> true
-    | Unix.WEXITED 1 -> false
-    | Unix.WEXITED n ->
-        (Printf.eprintf "Command return code %i:\n  %s\n%!" n cmd; false)
-    | Unix.WSIGNALED n ->
-        (Printf.eprintf "Command killed with signal %i:\n  %s\n%!" n cmd; false)
-    | Unix.WSTOPPED _n -> false
-
-  let run_command prog args =
-    let cmd = Array.fold_left (fun acc arg -> acc ^ arg ^ " ") "" args in
-    let pid = Unix.create_process prog args Unix.stdin Unix.stdout Unix.stderr in
-    Unix.sleep 3;
-    let rpid, status = Unix.waitpid [] pid in
-    assert(rpid = pid);
+    if discard_stdout then Unix.close fd_stdout;
     match status with
     | Unix.WEXITED 0 -> true
     | Unix.WEXITED n -> (Printf.eprintf "Command return code %i:\n  %s\n%!" n cmd; false)
     | Unix.WSIGNALED n ->
         (Printf.eprintf "Command killed with signal %i:\n  %s\n%!" n cmd; false)
     | Unix.WSTOPPED _n -> false
+
+  let run_diff file1 file2 =
+    let prog = "diff" in
+    let args = [| prog; "-q"; file1; file2 |] in
+    run_command ~discard_stdout:true prog args
 
   let run_file_check ?opamroot ~interactive files res =
     let open Benchmark in
