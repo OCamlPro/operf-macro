@@ -957,7 +957,7 @@ module Process = struct
     (* Remove the OCAML_GC_STATS env variable. *)
     Unix.putenv "OCAML_GC_STATS" "";
     match exec with
-    | `Ok _ as e ->
+    | `Ok { Execution.process_status = Unix.WEXITED _ } as e ->
         begin match fixed with
           | Some n ->
               let r = ref [] in
