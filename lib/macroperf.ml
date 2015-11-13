@@ -948,8 +948,13 @@ module Process = struct
               Printf.printf "%d times.\n%!" nb_iter;
             acc
         | false ->
-            let exec = f () in
-            run_until (succ nb_iter, (exec::acc))
+            match f () with
+            | `Ok { Execution.process_status = Unix.WEXITED _ } as exec ->
+                run_until (succ nb_iter, (exec::acc))
+            | exec ->
+                if interactive then
+                  Printf.printf "%d times.\n%!" nb_iter;
+                exec :: acc
       in
       run_until (1, init_acc)
     in
