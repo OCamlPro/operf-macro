@@ -572,8 +572,14 @@ module Result = struct
   let make ~bench ?(context_id="") ~execs () =
     let size =
       let size file =
-        try Some Unix.((stat file).st_size) with
-        | _ -> None
+        try
+          let tmp = Filename.temp_file (Filename.basename file) "" in
+          if Sys.command ("cp "^file^" "^tmp) <> 0 then failwith "cp";
+          if Sys.command ("strip "^tmp) <> 0 then failwith "strip";
+          let size = Unix.((stat tmp).st_size) in
+          Sys.remove tmp;
+          Some size
+        with _ -> None
       in
       match bench.Benchmark.binary with
       | Some file -> size file
