@@ -998,15 +998,33 @@ module Process = struct
 
   let data_of_gc_stats () =
     let lines = Util.File.lines_of_file "gc_stats" in
-    List.filter_map
-      (fun s ->
-         try
-           let i = String.index s ':' in
-           let gc = Topic.Gc.of_string_exn @@ String.sub s 0 i in
-           let v = Int64.of_string @@ String.sub s (i+2) (String.length s - i - 2) in
-           Some (Topic.(Topic (gc, Gc), Measure.of_int64 v))
-         with _ -> None)
-      lines
+    let data =
+      List.filter_map
+        (fun s ->
+           try
+             let i = String.index s ':' in
+             let gc = Topic.Gc.of_string_exn @@ String.sub s 0 i in
+             let v = Int64.of_string @@ String.sub s (i+2) (String.length s - i - 2) in
+             Some (Topic.(Topic (gc, Gc), Measure.of_int64 v))
+           with _ -> None)
+        lines
+    in
+    let data = (* Make promoted_words a ratio of minor_words *)
+      try
+        let minor =
+          Measure.to_int64 (List.assoc Topic.(Topic (Gc.Minor_words, Gc)) data)
+        in
+        List.map (fun (topic, measure) -> topic, match topic with
+            | Topic.Topic (gc, Topic.Gc) when gc = Topic.Gc.Promoted_words ->
+                let prom = Measure.to_int64 measure in
+                if prom = Int64.zero then Measure.of_float 0. else
+                  Measure.of_float (Int64.to_float prom /. Int64.to_float minor)
+            | _ -> measure)
+          data
+      with Not_found -> data
+    in
+    data
+
 end
 
 module Perf_wrapper = struct
