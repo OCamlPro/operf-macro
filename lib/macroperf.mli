@@ -428,7 +428,7 @@ end
 module Runner : sig
   val run_exn : ?use_perf:bool -> ?opamroot:string ->
     ?context_id:string -> interactive:bool -> fixed:bool ->
-    Benchmark.t -> Result.t
+    time_limit:float -> Benchmark.t -> Result.t
 
   val run_check : ?opamroot:string -> interactive:bool -> Result.t -> Result.t
 

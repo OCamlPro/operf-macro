@@ -54,7 +54,7 @@ let write_res_copts copts res =
   with Not_found -> ()
 
 (* Generic function to create and run a benchmark *)
-let make_bench_and_run copts cmd topics =
+let make_bench_and_run copts cmd topics time_limit =
   let absolute = function
     | [] -> assert false
     | h::t as cmd ->
@@ -75,7 +75,7 @@ let make_bench_and_run copts cmd topics =
 
   (* Run the benchmark *)
   let interactive = copts.output = `None in
-  let res = Runner.run_exn ~interactive ~fixed:false bench in
+  let res = Runner.run_exn ~interactive ~fixed:false ~time_limit bench in
 
   (* Write the result in the file specified by -o, or stdout and maybe
      in cache as well *)
@@ -99,7 +99,7 @@ let is_benchmark_file filename =
   kind_of_file filename = `File &&
   Filename.check_suffix filename ".bench"
 
-let run copts switch topics selectors skip force fixed =
+let run copts switch topics selectors skip force fixed time_limit =
   let opamroot = copts.opamroot in
   let switch = match switch with
     | None -> Util.Opam.cur_switch ~opamroot
@@ -159,7 +159,7 @@ let run copts switch topics selectors skip force fixed =
            in let reason_str = String.concat ", " reason in
            Printf.printf "Skipping %s (%s)\n" b.name reason_str)
       else
-        let res = Runner.run_exn ?opamroot ~context_id:switch ~interactive ~fixed b in
+        let res = Runner.run_exn ?opamroot ~context_id:switch ~interactive ~fixed ~time_limit b in
         write_res_copts copts res
     in
     match kind_of_file selector with
@@ -515,6 +515,10 @@ let default_cmd =
   Term.(ret (pure (fun _ -> `Help (`Pager, None)) $ copts_t)),
   Term.info "macrorun" ~version:"0.1" ~sdocs:copts_sect ~doc ~man
 
+let time_limit =
+  let doc = "Fixed minimun execution time" in
+  Arg.(value & opt float 0. & info ["time-limit"] ~doc)
+
 let perf_cmd =
   let cmd =
     let doc = "Absolute path of an executable and its arguments. \
@@ -529,7 +533,7 @@ let perf_cmd =
     `S "DESCRIPTION";
     `P "Wrapper to the PERF-STAT(1) command."] @ help_secs
   in
-  Term.(pure perf $ copts_t $ cmd $ evts),
+  Term.(pure perf $ copts_t $ cmd $ evts $ time_limit),
   Term.info "perf" ~doc ~sdocs:copts_sect ~man
 
 let switch =
@@ -574,7 +578,7 @@ let run_cmd =
     `S "DESCRIPTION";
     `P "Run macrobenchmarks from files."] @ help_secs
   in
-  Term.(pure run $ copts_t $ switch $ topics $ selector $ skip $ force $ fixed),
+  Term.(pure run $ copts_t $ switch $ topics $ selector $ skip $ force $ fixed $ time_limit),
   Term.info "run" ~doc ~sdocs:copts_sect ~man
 
 
