@@ -926,6 +926,8 @@ module Process = struct
     confidence: float;
   }
 
+  let min_duration = 4.e9
+
   let fast = {
     max_duration = 100_000_000L;
     probability = 0.99;
@@ -948,7 +950,10 @@ module Process = struct
       let rec run_until (nb_iter, (acc : Execution.t list)) =
         let durations =
           List.map (fun e -> Execution.duration e |> Int64.to_float) acc in
-        match Statistics.enough_samples ~probability ~confidence durations with
+        match
+          List.fold_left ( +. ) 0. durations >= min_duration &&
+          Statistics.enough_samples ~probability ~confidence durations
+        with
         | true ->
             if interactive then
               Printf.printf "%d times.\n%!" nb_iter;
