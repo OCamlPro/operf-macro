@@ -208,7 +208,7 @@ module Util = struct
     let switches ~opamroot =
       let aliases = File.lines_of_file @@ Opt.default root opamroot / "aliases" in
       List.fold_left
-        (fun acc s -> match Re_pcre.split ~rex:Re.(compile space) s with
+        (fun acc s -> match Re_pcre.split ~rex:Re.(compile blank) s with
           | name::_ -> name::acc
           | _ -> acc)
         [] aliases
@@ -604,7 +604,7 @@ module Result = struct
       let size file =
         match Util.Cmd.lines_of_cmd ("size -Bd "^file) with
         | Unix.WEXITED 0, [_; szs] ->
-            (match Re_pcre.split ~rex:Re.(compile space) szs with
+            (match Re_pcre.split ~rex:Re.(compile (rep1 blank)) szs with
              | text::data::bss::total::_ ->
                  Some (int_of_string total),
                  Some (int_of_string text),
