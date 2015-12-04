@@ -301,6 +301,29 @@ module Topic = struct
 
   module GcSet = Set.Make(Gc)
 
+  module Size = struct
+    type t =
+      | Full
+      | Code
+      | Data
+    with sexp
+
+    let of_string_exn : string -> t = function
+      | "size" -> Full
+      | "code_size" -> Code
+      | "data_size" -> Data
+      | _ -> invalid_arg "size_of_string_exn"
+
+    let of_string s = try Some (of_string_exn s) with _ -> None
+
+    let to_string = function
+      | Full -> "size"
+      | Code -> "code_size"
+      | Data -> "data_size"
+
+    let compare = compare
+  end
+
   type _ kind =
     (* Time related *)
     | Time : Time.t kind
@@ -312,31 +335,32 @@ module Topic = struct
     | Perf : string kind
 
     (* The executable size *)
-    | Size : unit kind
+    | Size : Size.t kind
 
   type t = Topic : 'a * 'a kind -> t
 
   let of_string s =
-    if s = "size" then Topic ((), Size)
-    else try Topic (Gc.of_string_exn s, Gc)
-      with _ ->
-        try
-          let s = Perf.Attr.Kind.(of_string s |> to_string) in
-          Topic (s, Perf)
-        with _ ->
-          (match s with
-           | "time_real" -> Topic (Time.Real, Time)
-           | "time_sys" -> Topic (Time.Sys, Time)
-           | "time_user" -> Topic (Time.User, Time)
-           | _ -> invalid_arg "Topic.of_string"
-          )
+    try Topic (Size.of_string_exn s, Size)
+    with Invalid_argument _ ->
+    try Topic (Gc.of_string_exn s, Gc)
+    with Invalid_argument _ ->
+    try
+      let s = Perf.Attr.Kind.(of_string s |> to_string) in
+      Topic (s, Perf)
+    with _ ->
+      (match s with
+       | "time_real" -> Topic (Time.Real, Time)
+       | "time_sys" -> Topic (Time.Sys, Time)
+       | "time_user" -> Topic (Time.User, Time)
+       | _ -> invalid_arg "Topic.of_string"
+      )
 
   let to_string t =
     match t with
     | Topic (t, Time) -> "time_" ^ Time.to_string t
     | Topic (gc, Gc) -> Gc.to_string gc
     | Topic (p, Perf) -> p
-    | Topic (_, Size) -> "size"
+    | Topic (sz, Size) -> Size.to_string sz
 
   let sexp_of_t t =
     let open Sexplib.Sexp in
@@ -344,7 +368,10 @@ module Topic = struct
     | Topic (time, Time) -> List [Atom "Time"; Time.sexp_of_t time]
     | Topic (gc, Gc) -> List [Atom "Gc"; Gc.sexp_of_t gc]
     | Topic (perf, Perf) -> List [Atom "Perf"; sexp_of_string perf]
-    | Topic (_, Size) -> Atom "Size"
+    | Topic (sz, Size) ->
+        match sz with
+        | Size.Full -> Atom "Size"
+        | sz -> List [Atom "Size"; Size.sexp_of_t sz]
 
   let t_of_sexp s =
     let open Sexplib.Sexp in
@@ -352,7 +379,8 @@ module Topic = struct
     | List [Atom "Time"; t] -> Topic (Time.t_of_sexp t, Time)
     | List [Atom "Gc"; t] -> Topic (Gc.t_of_sexp t, Gc)
     | List [Atom "Perf"; t] -> Topic (string_of_sexp t, Perf)
-    | Atom "Size" -> Topic ((), Size)
+    | Atom "Size" -> Topic (Size.Full, Size)
+    | List [Atom "Size"; t] -> Topic (Size.t_of_sexp t, Size)
     | _ -> invalid_arg "t_of_sexp"
 
   let compare = Pervasives.compare
@@ -566,25 +594,28 @@ module Result = struct
     context_id: string;
     execs: Execution.t list;
     size: int option with default(None);
+    size_code: int option with default(None);
+    size_data: int option with default(None);
     check: bool option;
   } with sexp
 
   let make ~bench ?(context_id="") ~execs () =
-    let size =
+    let size, size_code, size_data =
       let size file =
-        try
-          let tmp = Filename.temp_file (Filename.basename file) "" in
-          if Sys.command ("cp "^file^" "^tmp) <> 0 then failwith "cp";
-          if Sys.command ("strip "^tmp) <> 0 then failwith "strip";
-          let size = Unix.((stat tmp).st_size) in
-          Sys.remove tmp;
-          Some size
-        with _ -> None
+        match Util.Cmd.lines_of_cmd ("size -Bd "^file) with
+        | Unix.WEXITED 0, [_; szs] ->
+            (match Re_pcre.split ~rex:Re.(compile space) szs with
+             | text::data::bss::total::_ ->
+                 Some (int_of_string total),
+                 Some (int_of_string text),
+                 Some (int_of_string data + int_of_string bss)
+             | _ -> None, None, None)
+        | _ -> None, None, None
       in
       match bench.Benchmark.binary with
       | Some file -> size file
       | None -> match bench.Benchmark.cmd with
-        | [] -> None
+        | [] -> None, None, None
         | cmd :: _ -> size cmd
     in
     let execs = List.map
@@ -594,7 +625,7 @@ module Result = struct
         )
         execs in
     let check = None in
-    { bench; context_id; execs; size; check }
+    { bench; context_id; execs; size; size_code; size_data; check }
 
   let strip chan t = match chan with
     | `Stdout ->
@@ -703,7 +734,17 @@ module Summary = struct
     let data = match r.Result.size with
       | None -> data
       | Some size ->
-          TMap.add Topic.(Topic((),Size)) (Aggr.constant (float size)) data
+          TMap.add Topic.(Topic(Size.Full,Size)) (Aggr.constant (float size)) data
+    in
+    let data = match r.Result.size_code with
+      | None -> data
+      | Some size ->
+          TMap.add Topic.(Topic(Size.Code,Size)) (Aggr.constant (float size)) data
+    in
+    let data = match r.Result.size_data with
+      | None -> data
+      | Some size ->
+          TMap.add Topic.(Topic(Size.Data,Size)) (Aggr.constant (float size)) data
     in
     { success;
       name = r.bench.Benchmark.name;

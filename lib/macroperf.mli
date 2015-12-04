@@ -101,6 +101,16 @@ module Topic : sig
     val of_string : string -> t option
   end
 
+  module Size: sig
+    type t =
+      | Full
+      | Code
+      | Data
+
+    val of_string_exn : string -> t
+    val of_string : string -> t option
+  end
+
   type _ kind =
     (** Time related *)
     | Time : Time.t kind
@@ -112,7 +122,7 @@ module Topic : sig
     | Perf : string kind
 
     (** The executable size *)
-    | Size : unit kind
+    | Size : Size.t kind
 
   type t =  Topic : 'a * 'a kind -> t
 
@@ -246,7 +256,11 @@ module Result : sig
         measurements plus additional useful information about the
         individual runs if the execution was possible. *)
     size: int option;
-    (** The size of the executable *)
+    (** The (stripped) size of the executable (bytes) *)
+    size_code: int option;
+    (** The code section size of the executable (bytes) *)
+    size_data: int option;
+    (** The data+bss sections size of the executable (bytes) *)
     check: bool option;
     (** Result of cmd_check or file_check *)
   }
