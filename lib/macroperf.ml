@@ -1028,8 +1028,6 @@ module Process = struct
       run_until (1, init_acc)
     in
     let exec = f () in
-    (* Remove the OCAML_GC_STATS env variable. *)
-    Unix.putenv "OCAML_GC_STATS" "";
     match exec with
     | `Ok { Execution.process_status = Unix.WEXITED _ } as e ->
         begin match fixed with
@@ -1059,8 +1057,7 @@ module Process = struct
         end
     | other -> [other]
 
-  let data_of_gc_stats () =
-    let lines = Util.File.lines_of_file "gc_stats" in
+  let data_of_gc_stats lines =
     let data =
       List.filter_map
         (fun s ->
@@ -1070,7 +1067,7 @@ module Process = struct
              let v = Int64.of_string @@ String.sub s (i+2) (String.length s - i - 2) in
              Some (Topic.(Topic (gc, Gc), Measure.of_int64 v))
            with _ -> None)
-        lines
+        (List.rev lines)
     in
     let data = (* Make promoted_words a ratio of minor_words *)
       try
@@ -1116,11 +1113,9 @@ module Perf_wrapper = struct
       Sys.(set_signal sigalrm (Signal_handle (fun _ -> ())));
       let process_status =  Unix.close_process_full (p_stdout, p_stdin, p_stderr) in
       let time_end = Oclock.(gettime monotonic) in
+      let gc_topics = data_of_gc_stats stderr_lines in
       let rex = Re.(str "," |> compile) in
       let stderr_lines = List.map (Re_pcre.split ~rex) stderr_lines in
-      let gc_topics = (match Sys.file_exists "gc_stats" with
-          | false -> []
-          | true -> data_of_gc_stats ()) in
       let time_topics = [Topic.(Topic (Time.Real, Time),
                                 `Int Int64.(rem time_end time_start))] in
       let data = List.fold_left
@@ -1172,9 +1167,7 @@ module Libperf_wrapper = struct
         let data = TMap.add Topic.(Topic ((Time.Real, Time))) (`Int duration) data in
         let data = List.fold_left (fun a (k, v) -> TMap.add k v a)
             data
-            (match Sys.file_exists "gc_stats" with
-             | false -> []
-             | true -> data_of_gc_stats ())
+            (data_of_gc_stats (Re_pcre.split ~rex:Re.(compile eol) stderr))
         in
         `Ok Execution.{ process_status; stdout; stderr; data; checked=None; }
     | `Timeout -> `Timeout
@@ -1278,9 +1271,9 @@ module Runner = struct
     Unix.chdir temp_dir;
 
     let env = match b.env with
-      | None -> ["OCAML_GC_STATS=gc_stats"] @
+      | None -> ["OCAMLRUNPARAM=v=0x400"] @
                 Array.to_list @@ Unix.environment ()
-      | Some e -> "OCAML_GC_STATS=gc_stats"::e
+      | Some e -> "OCAMLRUNPARAM=v=0x400"::e
     in
 
     (* Transform individial topics into a list of executions *)
