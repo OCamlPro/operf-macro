@@ -81,21 +81,21 @@ module Topic : sig
 
   module Gc : sig
     type t =
-        Minor_words
-      | Promoted_words
+      | Minor_words
       | Major_words
+      | Promoted_words
+      | Top_heap_words
       | Minor_collections
       | Major_collections
+      | Compactions
       | Heap_words
       | Heap_chunks
-      | Top_heap_words
       | Live_words
       | Live_blocks
       | Free_words
       | Free_blocks
       | Largest_free
       | Fragments
-      | Compactions
 
     val of_string_exn : string -> t
     val of_string : string -> t option

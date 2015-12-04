@@ -243,20 +243,20 @@ module Topic = struct
   module Gc = struct
     type t =
       | Minor_words
-      | Promoted_words
       | Major_words
+      | Promoted_words
+      | Top_heap_words
       | Minor_collections
       | Major_collections
+      | Compactions
       | Heap_words
       | Heap_chunks
-      | Top_heap_words
       | Live_words
       | Live_blocks
       | Free_words
       | Free_blocks
       | Largest_free
       | Fragments
-      | Compactions
     with sexp
 
     let of_string_exn : string -> t = function
@@ -383,7 +383,17 @@ module Topic = struct
     | List [Atom "Size"; t] -> Topic (Size.t_of_sexp t, Size)
     | _ -> invalid_arg "t_of_sexp"
 
-  let compare = Pervasives.compare
+  let compare a b = match a, b with
+    | Topic (a, Time), Topic (b, Time) -> Time.compare a b
+    | Topic (a, Gc), Topic (b, Gc) -> Gc.compare a b
+    | Topic (a, Size), Topic (b, Size) -> Size.compare a b
+    | Topic (a, Perf), Topic (b, Perf) -> String.compare a b
+    | Topic (_, Time), _ -> -1
+    | _, Topic (_, Time) -> 1
+    | Topic (_, Size), _ -> -1
+    | _, Topic (_, Size) -> 1
+    | Topic (_, Gc), _ -> -1
+    | _, Topic (_, Gc) -> 1
 end
 
 
@@ -604,7 +614,8 @@ module Result = struct
       let size file =
         match Util.Cmd.lines_of_cmd ("size -Bd "^file) with
         | Unix.WEXITED 0, [_; szs] ->
-            (match Re_pcre.split ~rex:Re.(compile (rep1 blank)) szs with
+            (match Re_pcre.split ~rex:Re.(compile (rep1 (set " \t\n"))) szs with
+             | ""::text::data::bss::total::_
              | text::data::bss::total::_ ->
                  Some (int_of_string total),
                  Some (int_of_string text),
