@@ -505,6 +505,7 @@ module Execution = struct
     stdout: string;
     stderr: string;
     data: Measure.t TMap.t;
+    checked: bool option with default(None); (* ignored, for compat *)
   } with sexp
 
   type t = [ `Ok of exec | `Timeout | `Error of string ]
@@ -611,7 +612,7 @@ module Result = struct
     size: int option with default(None);
     size_code: int option with default(None);
     size_data: int option with default(None);
-    check: bool option;
+    check: bool option with default(None);
   } with sexp
 
   let make ~bench ?(context_id="") ~execs () =
@@ -1140,6 +1141,7 @@ module Perf_wrapper = struct
           stdout=stdout_string;
           stderr=""; (* Perf writes its result on stderr... *)
           data;
+          checked=None;
         }
     with
     | Unix.Unix_error (Unix.EINTR, _, _) -> `Timeout
@@ -1163,7 +1165,7 @@ module Libperf_wrapper = struct
     (* /!\ Perf.with_process <> Process.with_process, but similar /!\ *)
     with_process
       ?env ?timeout ~stdout:"stdout" ~stderr:"stderr" cmd attrs |> function
-    | `Ok {process_status; stdout; stderr; duration; data;} ->
+    | `Ok {process_status; stdout; stderr; duration; data} ->
         let data = KindMap.fold
             (fun k v a -> TMap.add Topic.(Topic (Attr.Kind.to_string k, Perf)) (`Int v) a)
             data TMap.empty in
@@ -1174,7 +1176,7 @@ module Libperf_wrapper = struct
              | false -> []
              | true -> data_of_gc_stats ())
         in
-        `Ok Execution.{ process_status; stdout; stderr; data; }
+        `Ok Execution.{ process_status; stdout; stderr; data; checked=None; }
     | `Timeout -> `Timeout
     | `Exn e -> Execution.error e
 

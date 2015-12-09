@@ -229,6 +229,7 @@ module Execution : sig
     stdout: string;
     stderr: string;
     data: Measure.t TMap.t;
+    checked: bool option; (* obsolete *)
   }
   (** Type representing the successful execution of a benchmark. *)
 
