@@ -332,6 +332,8 @@ module Summary : sig
     context_id: string;
     weight: float;
     data: Aggr.t TMap.t;
+    error: (string * string) option;
+    (** stdout, stderr of one failed run, when success = false *)
   }
   (** Content of a "summary file". *)
 

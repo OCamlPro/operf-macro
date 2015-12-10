@@ -732,16 +732,27 @@ module Summary = struct
     context_id: string;
     weight: float;
     data: Aggr.t TMap.t;
+    error: (string * string) option with default(None);
   } with sexp
 
   let of_result r =
     let open Execution in
     let open Result in
-    let success = List.for_all (function
-        | `Ok {process_status = Unix.WEXITED code; _} ->
-            code = r.bench.Benchmark.return_value
-        | _ -> false)
-        r.execs in
+    let success, error =
+      let err =
+        List.fold_left (fun acc -> function
+            | `Ok {process_status = Unix.WEXITED code}
+              when code = r.bench.Benchmark.return_value ->
+                acc
+            | `Ok ({Execution.process_status = _} as ex) ->
+                Some ex
+            | _ -> None)
+          None r.execs
+      in
+      match err with
+      | None -> true, None
+      | Some e -> false, Some (e.stdout, e.stderr)
+    in
     let data = List.fold_left
         (fun a e -> match e with | `Ok e -> e.data::a | _ -> a)
         [] r.execs in
@@ -768,6 +779,7 @@ module Summary = struct
       context_id = r.Result.context_id;
       weight = r.bench.Benchmark.weight;
       data;
+      error;
     }
 
   let normalize s =

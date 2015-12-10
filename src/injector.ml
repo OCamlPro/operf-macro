@@ -115,7 +115,8 @@ let export
            name; context_id; weight;
            data = TMap.add
                Topic.(Topic ("cycles", Perf)) cy_aggr
-               (TMap.singleton Topic.(Topic (Time.Real, Time)) na_aggr)
+               (TMap.singleton Topic.(Topic (Time.Real, Time)) na_aggr);
+           error = None;
          }
       ) vs in
   List.iter
