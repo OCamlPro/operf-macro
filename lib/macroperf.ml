@@ -41,6 +41,17 @@ module String = struct
   include String
   let prefix s s' =
     length s <= length s' && s = sub s' 0 @@ length s
+
+  let last_n_lines count str =
+    let rec aux acc count i =
+      if count <= 0 || i < 0 then acc else
+        let j = try Some (String.rindex_from str i '\n') with Not_found -> None in
+        match j with
+        | Some j ->
+            aux (String.sub str (j+1) (i - j) :: acc) (count - 1) (j-1)
+        | None -> String.sub str 0 (i + 1) :: acc
+    in
+    aux [] count (String.length str - 1)
 end
 
 module Util = struct
@@ -1074,15 +1085,15 @@ module Process = struct
 
   let data_of_gc_stats lines =
     let data =
-      List.filter_map
-        (fun s ->
+      List.fold_left
+        (fun acc s ->
            try
              let i = String.index s ':' in
              let gc = Topic.Gc.of_string_exn @@ String.sub s 0 i in
              let v = Int64.of_string @@ String.sub s (i+2) (String.length s - i - 2) in
-             Some (Topic.(Topic (gc, Gc), Measure.of_int64 v))
-           with _ -> None)
-        (List.rev lines)
+             Topic.(Topic (gc, Gc), Measure.of_int64 v) :: acc
+           with _ -> acc)
+        [] lines
     in
     let data = (* Make promoted_words a ratio of minor_words *)
       try
@@ -1182,7 +1193,7 @@ module Libperf_wrapper = struct
         let data = TMap.add Topic.(Topic ((Time.Real, Time))) (`Int duration) data in
         let data = List.fold_left (fun a (k, v) -> TMap.add k v a)
             data
-            (data_of_gc_stats (Re_pcre.split ~rex:Re.(compile eol) stderr))
+            (data_of_gc_stats (String.last_n_lines 20 stderr))
         in
         `Ok Execution.{ process_status; stdout; stderr; data; checked=None; }
     | `Timeout -> `Timeout
