@@ -1014,7 +1014,8 @@ module Process = struct
     confidence = 0.05;
   }
 
-  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~fixed ~interactive (f : unit -> Execution.t) =
+  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~fixed ~interactive ~return_value
+      (f : unit -> Execution.t) =
 
     let run_until ~probability ~confidence (init_acc : Execution.t list) =
       let rec run_until (nb_iter, (acc : Execution.t list)) =
@@ -1030,7 +1031,8 @@ module Process = struct
             acc
         | false ->
             match f () with
-            | `Ok { Execution.process_status = Unix.WEXITED _ } as exec ->
+            | `Ok { Execution.process_status = Unix.WEXITED v } as exec
+              when v = return_value->
                 run_until (succ nb_iter, (exec::acc))
             | exec ->
                 if interactive then
@@ -1041,7 +1043,8 @@ module Process = struct
     in
     let exec = f () in
     match exec with
-    | `Ok { Execution.process_status = Unix.WEXITED _ } as e ->
+    | `Ok { Execution.process_status = Unix.WEXITED v } as e
+      when v = return_value ->
         begin match fixed with
           | Some n ->
               let r = ref [] in
@@ -1156,10 +1159,10 @@ module Perf_wrapper = struct
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
         Execution.error exn
 
-  let run ?env ?timeout cmd evts =
+  let run ?env ?timeout ~return_value cmd evts =
     (* if evts = SSet.empty then [] *)
     (* else *)
-      run (fun () -> run_once ?env ?timeout cmd evts)
+      run ~return_value (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Libperf_wrapper = struct
@@ -1185,8 +1188,8 @@ module Libperf_wrapper = struct
     | `Timeout -> `Timeout
     | `Exn e -> Execution.error e
 
-  let run ?env ?timeout cmd evts =
-    run (fun () -> run_once ?env ?timeout cmd evts)
+  let run ?env ?timeout ~return_value cmd evts =
+    run ~return_value (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Runner = struct
@@ -1306,10 +1309,11 @@ module Runner = struct
     in
 
     let run_execs { time; gc; perf; } b =
+      let return_value = b.return_value in
       if use_perf then
-        Perf_wrapper.(run ~interactive ~env b.cmd perf)
+        Perf_wrapper.(run ~interactive ~env ~return_value b.cmd perf)
       else
-        Libperf_wrapper.(run ~interactive ~env b.cmd perf)
+        Libperf_wrapper.(run ~interactive ~env ~return_value b.cmd perf)
     in
 
     if interactive then
