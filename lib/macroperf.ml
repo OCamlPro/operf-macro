@@ -467,6 +467,7 @@ module TMap = struct
           (fun k v1 v2 -> match v1, v2 with
              | None, Some v -> Some [v]
              | Some aa, Some v -> Some (v::aa)
+             | Some aa, None -> Some aa
              | _ -> invalid_arg "lmerge"
           )
           a t)
