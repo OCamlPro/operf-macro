@@ -1,15 +1,15 @@
 module Sexpable : sig
   module type S = sig
-    type t with sexp
+    type t [@@deriving sexp]
   end
   module type S1 = sig
-    type 'a t with sexp
+    type 'a t [@@deriving sexp]
   end
   module type S2 = sig
-    type ('a, 'b) t with sexp
+    type ('a, 'b) t [@@deriving sexp]
   end
   module type S3 = sig
-    type ('a, 'b, 'c) t with sexp
+    type ('a, 'b, 'c) t [@@deriving sexp]
   end
 end
 
