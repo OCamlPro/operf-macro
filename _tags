@@ -4,8 +4,8 @@
 
 <lib/*.{ml,mli}> : package(re.pcre), \
 		   package(re.glob), \
-		   syntax(camlp4o), \
-		   package(sexplib.syntax), \
+		   package(sexplib), \
+		   package(ppx_sexp_conv), \
 		   package(perf), \
 		   package(oclock), \
 		   package(xdg-basedir)
