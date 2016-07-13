@@ -2,16 +2,16 @@ open Sexplib.Std
 
 module Sexpable = struct
   module type S = sig
-    type t with sexp
+    type t [@@deriving sexp]
   end
   module type S1 = sig
-    type 'a t with sexp
+    type 'a t [@@deriving sexp]
   end
   module type S2 = sig
-    type ('a, 'b) t with sexp
+    type ('a, 'b) t [@@deriving sexp]
   end
   module type S3 = sig
-    type ('a, 'b, 'c) t with sexp
+    type ('a, 'b, 'c) t [@@deriving sexp]
   end
 end
 
@@ -239,7 +239,7 @@ end
 
 module Topic = struct
   module Time = struct
-    type t = Real | User | Sys with sexp
+    type t = Real | User | Sys [@@deriving sexp]
     let of_string = function
       | "real" -> Real
       | "user" -> User
@@ -273,7 +273,7 @@ module Topic = struct
       | Free_blocks
       | Largest_free
       | Fragments
-    with sexp
+    [@@deriving sexp]
 
     let of_string_exn : string -> t = function
       | "minor_words"       -> Minor_words
@@ -322,7 +322,7 @@ module Topic = struct
       | Full
       | Code
       | Data
-    with sexp
+    [@@deriving sexp]
 
     let of_string_exn : string -> t = function
       | "size" -> Full
@@ -435,7 +435,7 @@ module SMap = struct
   let filter_mapi f t =
     fold (fun k v a -> match f k v with Some r -> add k r a | None -> a) t empty
 
-  type 'a bindings = (string * 'a) list with sexp
+  type 'a bindings = (string * 'a) list [@@deriving sexp]
 
   let t_of_sexp sexp_of_elt s = bindings_of_sexp sexp_of_elt s |> of_list
   let sexp_of_t sexp_of_elt t = sexp_of_bindings sexp_of_elt @@ bindings t
@@ -456,7 +456,7 @@ module TMap = struct
   let filter_mapi f t =
     fold (fun k v a -> match f k v with Some r -> add k r a | None -> a) t empty
 
-  type 'a bindings = (key * 'a) list with sexp
+  type 'a bindings = (key * 'a) list [@@deriving sexp]
 
   let t_of_sexp sexp_of_elt s = bindings_of_sexp sexp_of_elt s |> of_list
   let sexp_of_t sexp_of_elt t = sexp_of_bindings sexp_of_elt @@ bindings t
@@ -475,7 +475,7 @@ module TMap = struct
 end
 
 module Measure = struct
-  type t = [ `Int of int64 | `Float of float | `Error ] with sexp
+  type t = [ `Int of int64 | `Float of float | `Error ] [@@deriving sexp]
   let of_string s =
     try `Int (Int64.of_string s) with _ ->
       try `Float (float_of_string s) with _ ->
@@ -517,11 +517,11 @@ module Execution = struct
     stdout: string;
     stderr: string;
     data: Measure.t TMap.t;
-    checked: bool option with default(None); (* ignored, for compat *)
-  } with sexp
+    checked: bool option [@default None]; (* ignored, for compat *)
+  } [@@deriving sexp]
 
   type t = [ `Ok of exec | `Timeout | `Error of string ]
-  with sexp
+  [@@deriving sexp]
   (** Type representing the execution of a benchmark. *)
 
   let error exn = `Error Printexc.(to_string exn)
@@ -543,23 +543,23 @@ end
 
 module Benchmark = struct
 
-  type speed = [`Fast | `Slow | `Slower] with sexp
+  type speed = [`Fast | `Slow | `Slower] [@@deriving sexp]
 
   type t = {
     name: string;
-    descr: string with default("");
+    descr: string [@default ""];
     cmd: string list;
-    cmd_check: string list with default([]);
-    file_check: (string * string) list with default([]);
-    binary: string option with default(None);
-    env: string list option with default(None);
-    speed: speed with default(`Fast);
-    timeout: int with default(600);
-    weight: float with default(1.);
-    discard: [`Stdout | `Stderr] list with default([]);
-    topics: TSet.t with default(TSet.empty);
-    return_value: int with default(0);
-  } with sexp
+    cmd_check: string list [@default []];
+    file_check: (string * string) list [@default []];
+    binary: string option [@default None];
+    env: string list option [@default None];
+    speed: speed [@default `Fast];
+    timeout: int [@default 600];
+    weight: float [@default 1.];
+    discard: [`Stdout | `Stderr] list [@default []];
+    topics: TSet.t [@default TSet.empty];
+    return_value: int [@default 0];
+  } [@@deriving sexp]
 
   let make ~name ?(descr="") ~cmd ?(cmd_check=[]) ?(file_check=[])
       ?binary ?env ~speed ?(timeout=600) ?(weight=1.) ?(discard=[]) ~topics 
@@ -621,11 +621,11 @@ module Result = struct
     bench: Benchmark.t;
     context_id: string;
     execs: Execution.t list;
-    size: int option with default(None);
-    size_code: int option with default(None);
-    size_data: int option with default(None);
-    check: bool option with default(None);
-  } with sexp
+    size: int option [@default None];
+    size_code: int option [@default None];
+    size_data: int option [@default None];
+    check: bool option [@default None];
+  } [@@deriving sexp]
 
   let make ~bench ?(context_id="") ~execs () =
     let size, size_code, size_data =
@@ -688,13 +688,13 @@ end
 module Summary = struct
   module Aggr = struct
     type t = {
-      success: bool with default(true);
+      success: bool [@default true];
       mean: float;
       stddev: float;
       mini: float;
       maxi: float;
-      runs: int with default(1);
-    } with sexp
+      runs: int [@default 1];
+    } [@@deriving sexp]
 
     let create ~success ~mean ~stddev ~mini ~maxi ~runs =
       { success; mean; stddev; mini; maxi; runs }
@@ -739,13 +739,13 @@ module Summary = struct
   end
 
   type t = {
-    success: bool with default(true);
+    success: bool [@default true];
     name: string;
     context_id: string;
     weight: float;
     data: Aggr.t TMap.t;
-    error: (string * string) option with default(None);
-  } with sexp
+    error: (string * string) option [@default None];
+  } [@@deriving sexp]
 
   let of_result r =
     let open Execution in
@@ -850,7 +850,7 @@ module Summary = struct
 end
 
 module DB = struct
-  type 'a t = ('a SMap.t) SMap.t with sexp
+  type 'a t = ('a SMap.t) SMap.t [@@deriving sexp]
   (** Indexed by benchmark, context_id, topic. *)
 
   let empty = SMap.empty
@@ -899,7 +899,7 @@ module DB = struct
 end
 
 module DB2 = struct
-  type 'a t = (('a SMap.t) SMap.t) TMap.t with sexp
+  type 'a t = (('a SMap.t) SMap.t) TMap.t [@@deriving sexp]
   (** Indexed by topic, benchmark, context_id *)
 
   let empty = TMap.empty
