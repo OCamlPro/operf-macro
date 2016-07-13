@@ -1026,8 +1026,8 @@ module Process = struct
     confidence = 0.05;
   }
 
-  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~fixed ~interactive ~return_value
-      (f : unit -> Execution.t) =
+  let run ?(fast=fast) ?(slow=slow) ?(slower=slower) ~fixed ~interactive
+      ~return_value ~time_limit (f : unit -> Execution.t) =
 
     let run_until ~probability ~confidence (init_acc : Execution.t list) =
       let rec run_until (nb_iter, (acc : Execution.t list)) =
@@ -1053,6 +1053,7 @@ module Process = struct
       in
       run_until (1, init_acc)
     in
+    let tstart = Unix.gettimeofday () in
     let exec = f () in
     match exec with
     | `Ok { Execution.process_status = Unix.WEXITED v } as e
@@ -1063,8 +1064,15 @@ module Process = struct
               for i = 0 to n - 1 do
                 r := f () :: !r
               done;
+              let need_more_runs_to_reach_time_limit () =
+                let time = Unix.gettimeofday () in
+                time < tstart +. time_limit
+              in
+              while need_more_runs_to_reach_time_limit () do
+                r := f () :: !r
+              done;
               if interactive then
-                Printf.printf "%d times.\n%!" n;
+                Printf.printf "%d times.\n%!" (List.length !r);
               !r
           | None ->
               let duration = Execution.duration e in
@@ -1171,10 +1179,10 @@ module Perf_wrapper = struct
         ignore @@ Unix.close_process_full (p_stdout, p_stdin, p_stderr);
         Execution.error exn
 
-  let run ?env ?timeout ~return_value cmd evts =
+  let run ?env ?timeout ~return_value ~time_limit cmd evts =
     (* if evts = SSet.empty then [] *)
     (* else *)
-      run ~return_value (fun () -> run_once ?env ?timeout cmd evts)
+    run ~return_value ~time_limit (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Libperf_wrapper = struct
@@ -1200,8 +1208,8 @@ module Libperf_wrapper = struct
     | `Timeout -> `Timeout
     | `Exn e -> Execution.error e
 
-  let run ?env ?timeout ~return_value cmd evts =
-    run ~return_value (fun () -> run_once ?env ?timeout cmd evts)
+  let run ?env ?timeout ~return_value ~time_limit cmd evts =
+    run ~return_value ~time_limit (fun () -> run_once ?env ?timeout cmd evts)
 end
 
 module Runner = struct
@@ -1273,7 +1281,7 @@ module Runner = struct
       { res with check = check_res }
     else res
 
-  let run_exn ?(use_perf=false) ?opamroot ?context_id ~interactive ~fixed b =
+  let run_exn ?(use_perf=false) ?opamroot ?context_id ~interactive ~fixed ~time_limit b =
     let open Benchmark in
     let context_id = match context_id with
       | Some context_id -> context_id
@@ -1323,9 +1331,9 @@ module Runner = struct
     let run_execs { time; gc; perf; } b =
       let return_value = b.return_value in
       if use_perf then
-        Perf_wrapper.(run ~interactive ~env ~return_value b.cmd perf)
+        Perf_wrapper.(run ~interactive ~env ~return_value ~time_limit b.cmd perf)
       else
-        Libperf_wrapper.(run ~interactive ~env ~return_value b.cmd perf)
+        Libperf_wrapper.(run ~interactive ~env ~return_value ~time_limit b.cmd perf)
     in
 
     if interactive then
