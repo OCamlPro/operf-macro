@@ -209,31 +209,32 @@ module Util = struct
     include FS
     let root = try Unix.getenv "OPAMROOT" with Not_found -> home / ".opam"
 
+    let call_opam ~opamroot args =
+      let root = Opt.default root opamroot in
+      let cmd = String.concat " " (List.map String.escaped ("opam"::args)) in
+      let res, result = Cmd.lines_of_cmd cmd in
+      match res with
+      | WEXITED code -> (code = 0), result
+      | _ -> failwith ("opam call failed: "^cmd)
+
     let cur_switch ~opamroot =
-      let rex = Re_pcre.regexp "switch: \"([^\"]*)\"" in
-      let config_lines = File.lines_of_file @@ Opt.default root opamroot / "config" in
-      List.fold_left
-        (fun a l ->
-           try
-             let substrings = Re_pcre.exec ~rex l in
-             Re_pcre.get_substring substrings 1
-           with _ -> a
-        )
-        "" config_lines
+      match call_opam ~opamroot ["switch"; "show"] with
+      | true, [switch] -> switch
+      | _ -> failwith "Current switch query failed"
 
     let switches ~opamroot =
-      let aliases = File.lines_of_file @@ Opt.default root opamroot / "aliases" in
-      List.fold_left
-        (fun acc s -> match Re_pcre.split ~rex:Re.(compile blank) s with
-          | name::_ -> name::acc
-          | _ -> acc)
-        [] aliases
+      match call_opam ~opamroot ["switch"; "-s"] with
+      | true, switches -> switches
+      | false, _ -> failwith "Switch list query failed"
 
     let switches_matching ?opamroot glob =
       let re = Re_glob.globx ~anchored:true glob |> Re.compile in
       List.filter (fun s -> Re.execp re s) (switches ~opamroot)
 
-    let share ?opamroot s = Opt.default root opamroot / s / "share"
+    let share ?opamroot s =
+      match call_opam ~opamroot ["var"; "share"; "--switch"; s] with
+      | true, [dir] -> dir
+      | _ -> failwith "opam var query failed"
   end
 end
 
